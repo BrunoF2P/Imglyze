@@ -1,50 +1,63 @@
 import React from 'react';
-import { Loader2, Clock, Zap, Target, CheckCircle2, AlertCircle, Pause, Play, XCircle } from 'lucide-react';
-import { FileItem, BatchStats, ProcessStatus } from '../types';
+import { Loader2, Clock, AlertCircle, Pause, Play, XCircle, CheckCircle2 } from 'lucide-react';
+import { ProcessStatus } from '../types';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-interface ProcessingViewProps {
-    files: FileItem[];
-    overallProgress: number;
-    stats: BatchStats;
-    isPaused: boolean;
-    onPauseToggle: () => void;
-    onCancel: () => void;
-}
+import { useBatch } from '../contexts/BatchContext';
+import { TYPOGRAPHY, LAYOUT } from '../lib/constants';
 
-export const ProcessingView: React.FC<ProcessingViewProps> = ({
-    files,
-    overallProgress,
-    stats,
-    isPaused,
-    onPauseToggle,
-    onCancel
-}) => {
+export const ProcessingView: React.FC = () => {
+    const {
+        files,
+        progress: overallProgress,
+        stats,
+        isPaused,
+        togglePause: onPauseToggle,
+        cancelProcessing: onCancel,
+        handleCompare: onCompare
+    } = useBatch();
     const { t } = useTranslation();
+    const [now, setNow] = React.useState(Date.now());
 
-    const containerVariants = {
-        hidden: { opacity: 0 },
-        show: {
-            opacity: 1,
-            transition: { staggerChildren: 0.1 }
+    React.useEffect(() => {
+        let interval: any;
+        if (!isPaused) {
+            interval = setInterval(() => {
+                setNow(Date.now());
+            }, 1000);
         }
+        return () => clearInterval(interval);
+    }, [isPaused]);
+
+    const formatTime = (seconds: number) => {
+        if (!isFinite(seconds) || seconds < 0) return "--:--";
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
-    const itemVariants = {
-        hidden: { opacity: 0, y: 20 },
-        show: { opacity: 1, y: 0 }
-    };
+    const startTime = stats.startTime || now;
+    const elapsedSeconds = (now - startTime) / 1000;
+    const processedCount = files.filter(f => f.status === 'Done' || f.status === 'Error').length;
+    const totalSelected = files.filter(f => f.selected).length;
 
     return (
-        <div className="w-full max-w-6xl mx-auto flex flex-col gap-6">
+        <div className="w-full max-w-6xl mx-auto flex flex-col gap-6" >
             <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between">
-                    <h2 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
-                        {isPaused ? <Pause className="text-yellow-500 w-6 h-6" /> : <Loader2 className="animate-spin text-primary w-6 h-6" />}
-                        {isPaused ? t('processing.paused') : t('processing.working')}
-                    </h2>
+                    <div className="flex items-center gap-4">
+                        <h2 className={cn(TYPOGRAPHY.heading, "flex items-center gap-3")}>
+                            {isPaused ? <Pause className="text-yellow-500 w-6 h-6" /> : <Loader2 className="animate-spin text-primary w-6 h-6" />}
+                            {isPaused ? t('processing.paused') : t('processing.working')}
+                        </h2>
+                        <div className="h-8 w-px bg-text-main/10 hidden md:block" />
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-text-main/5 rounded-xl border border-text-main/5">
+                            <Clock className="w-4 h-4 text-text-muted" />
+                            <span className={TYPOGRAPHY.monoStats}>{formatTime(elapsedSeconds)}</span>
+                        </div>
+                    </div>
                     <div className="flex items-center gap-3">
                         <button
                             onClick={onPauseToggle}
@@ -72,38 +85,20 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({
                             transition={{ type: 'spring', bounce: 0, duration: 1 }}
                         />
                     </div>
-                    <div className="flex justify-between mt-2 text-[10px] text-text-muted font-bold uppercase tracking-wider">
-                        <span>{t('processing.filesProcessed', { count: files.filter(f => f.status === 'Done').length, total: files.length })}</span>
+                    <div className={cn(TYPOGRAPHY.compactLabel, "flex justify-between mt-2")}>
+                        <span>{t('processing.filesProcessed', { count: processedCount, total: totalSelected })}</span>
                         <span className="text-primary">{overallProgress.toFixed(1)}%</span>
                     </div>
                 </div>
             </div>
 
             <motion.div
-                variants={containerVariants}
-                initial="hidden"
-                animate="show"
-                className="grid grid-cols-1 md:grid-cols-4 gap-4"
-            >
-                <StatCard variants={itemVariants} icon={Clock} label={t('processing.timeElapsed')} value="00:12" />
-                <StatCard variants={itemVariants} icon={Target} label={t('processing.estimatedTime')} value="00:45" />
-                <StatCard variants={itemVariants} icon={Zap} label={t('processing.speed')} value="2.4 files/s" />
-                <StatCard
-                    variants={itemVariants}
-                    icon={CheckCircle2}
-                    label={t('processing.saved')}
-                    value={`${(stats.totalSize - stats.optimizedSize) > 0 ? ((stats.totalSize - stats.optimizedSize) / 1024 / 1024).toFixed(1) : '0.0'} MB`}
-                    highlight
-                />
-            </motion.div>
-
-            <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
-                className="glass rounded-2xl overflow-hidden flex flex-col flex-1 min-h-[400px] border border-text-main/5"
+                className={cn(LAYOUT.glass, LAYOUT.largeBorderRadius, "flex flex-col flex-1 min-h-[400px] overflow-hidden")}
             >
-                <div className="p-4 border-b border-text-main/5 flex items-center bg-text-main/[0.02] text-[10px] font-bold uppercase tracking-wider text-text-muted">
+                <div className={cn(TYPOGRAPHY.compactLabel, "p-4 border-b border-text-main/5 flex items-center bg-text-main/[0.02]")}>
                     <div className="w-12"></div>
                     <div className="flex-1">{t('processing.filename')}</div>
                     <div className="w-24 text-right">{t('processing.original')}</div>
@@ -120,7 +115,11 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
                                 exit={{ opacity: 0 }}
-                                className="flex items-center p-4 border-b border-text-main/5 hover:bg-text-main/[0.03] transition-colors group"
+                                onClick={file.status === 'Done' ? () => onCompare(file) : undefined}
+                                className={cn(
+                                    "flex items-center p-4 border-b border-text-main/5 hover:bg-text-main/[0.03] transition-colors group",
+                                    file.status === 'Done' && "cursor-pointer"
+                                )}
                             >
                                 <div className="w-12 flex justify-center">
                                     <span className="px-2 py-0.5 rounded-md bg-text-main/5 text-[9px] font-bold border border-text-main/5 group-hover:bg-primary/10 group-hover:text-primary transition-colors">{file.format}</span>
@@ -153,30 +152,9 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({
                     </AnimatePresence>
                 </div>
             </motion.div>
-        </div>
+        </div >
     );
 };
-
-const StatCard = ({ icon: Icon, label, value, highlight, variants }: any) => (
-    <motion.div
-        variants={variants}
-        className={cn(
-            "glass p-5 rounded-xl flex items-center gap-4 transition-all group border border-text-main/5",
-            highlight ? "bg-gradient-to-br from-green-500/[0.02] to-transparent border-green-500/10" : "hover:border-text-main/5"
-        )}
-    >
-        <div className={cn(
-            "p-2.5 rounded-lg transition-colors border border-transparent",
-            highlight ? "bg-green-500/10 text-green-400 border-green-500/10" : "bg-text-main/5 text-text-muted group-hover:bg-primary/5 group-hover:text-primary group-hover:border-primary/10"
-        )}>
-            <Icon className="w-5 h-5" />
-        </div>
-        <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-1 leading-none">{label}</p>
-            <p className="text-xl font-bold tracking-tight leading-none">{value}</p>
-        </div>
-    </motion.div>
-);
 
 const StatusBadge = ({ status }: { status: ProcessStatus }) => {
     const { t } = useTranslation();
