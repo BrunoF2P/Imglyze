@@ -64,9 +64,7 @@ pub fn get_format(path: &Path) -> Option<ImageFormat> {
     // OR we could respect the user's wish if they selected "All Files".
     // For now, let's strictly require a supported extension AND valid magic number
     // to match the previous behavior of "supported extension".
-    if likely_format.is_none() {
-        return None;
-    }
+    likely_format.as_ref()?;
 
     // Read header (magic bytes)
     let mut file = fs::File::open(path).ok()?;
@@ -251,7 +249,7 @@ fn handle_zip(
         } else {
             if let Some(p) = outpath.parent() {
                 if !p.exists() {
-                    let _ = fs::create_dir_all(&p);
+                    let _ = fs::create_dir_all(p);
                 }
             }
 

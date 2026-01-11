@@ -433,7 +433,7 @@ pub async fn run_batch(
             continue;
         }
 
-        if let Err(_) = handle_pause_cancel(&app, &state).await {
+        if handle_pause_cancel(&app, &state).await.is_err() {
             return Ok(());
         }
 
@@ -516,7 +516,7 @@ fn finalize_zip(
         .output_path
         .as_ref()
         .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir())
+        .unwrap_or_else(std::env::temp_dir)
         .join(
             settings
                 .output_zip_name
