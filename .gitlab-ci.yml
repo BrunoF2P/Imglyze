@@ -32,6 +32,9 @@ lint:frontend:
 lint:backend:
   stage: lint
   image: rust:latest
+  before_script:
+    - apt-get update
+    - apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libayatana-appindicator3-dev
   script:
     - cd src-tauri
     - rustup component add clippy
@@ -72,6 +75,9 @@ test:frontend:
 test:backend:
   stage: test
   image: rust:latest
+  before_script:
+    - apt-get update
+    - apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libayatana-appindicator3-dev
   script:
     - cd src-tauri
     - cargo test --verbose
@@ -172,12 +178,25 @@ security:audit:
     - main
 
 # Dependency updates check
-dependencies:check:
+dependencies:check:frontend:
   stage: lint
   image: node:20
   script:
     - npm outdated || true
-    - cd src-tauri && cargo outdated || cargo install cargo-outdated && cargo outdated
+  allow_failure: true
+  only:
+    - schedules
+
+dependencies:check:backend:
+  stage: lint
+  image: rust:latest
+  before_script:
+    - apt-get update
+    - apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libayatana-appindicator3-dev
+  script:
+    - cd src-tauri
+    - cargo install cargo-outdated --locked || true
+    - cargo outdated
   allow_failure: true
   only:
     - schedules
