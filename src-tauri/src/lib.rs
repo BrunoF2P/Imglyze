@@ -1,4 +1,7 @@
-mod theme;
+pub mod discovery;
+pub mod encoders;
+pub mod processing;
+pub mod theme;
 
 use theme::SystemTheme;
 
@@ -6,12 +9,10 @@ use theme::SystemTheme;
 async fn get_system_theme() -> Result<SystemTheme, String> {
     #[cfg(target_os = "linux")]
     {
-        // Tentar KDE primeiro
         if let Ok(theme) = theme::get_kde_theme() {
             return Ok(theme);
         }
 
-        // Fallback pra GTK
         if let Ok(theme) = theme::get_gtk_theme() {
             return Ok(theme);
         }
@@ -33,8 +34,14 @@ async fn get_system_theme() -> Result<SystemTheme, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_system_theme])
+        .manage(processing::AppState::default())
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            get_system_theme,
+            discovery::discover_files,
+            processing::run_batch,
+            processing::set_processing_status,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

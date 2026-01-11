@@ -9,8 +9,14 @@ export interface FileItem {
     format: ImageFormat;
     status: ProcessStatus;
     optimizedSize?: number;
+    optimizedPath?: string;
     error?: string;
     selected: boolean;
+}
+
+export interface DiscoveryResult {
+    items: FileItem[];
+    errors: string[];
 }
 
 export interface BatchStats {
@@ -24,10 +30,17 @@ export interface BatchStats {
 
 export type OutputMode = 'ZIP' | 'Folder' | 'Replace' | 'Suffix';
 
+export interface AdvancedSettings {
+    targetFormat: 'Original' | ImageFormat;
+    quality: number;
+    maxFileSize?: number; // In KB
+    keepMetadata: boolean;
+}
+
 export interface BatchSettings {
     globalPreset: string;
     advancedMode: boolean;
-    formatPresets: Record<ImageFormat, string>;
+    formatPresets: Record<ImageFormat, AdvancedSettings>;
     outputMode: OutputMode;
     outputZipName?: string;
     outputPath?: string;
