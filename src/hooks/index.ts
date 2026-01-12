@@ -1,3 +1,3 @@
-export { useFileList } from './useFileList';
-export { useBatchSettings } from './useBatchSettings';
-export { useProcessingProgress } from './useProcessingProgress';
+export { useFileList } from '../features/batch-processing/hooks/useFileList';
+export { useBatchSettings } from '../features/settings/hooks/useBatchSettings';
+export { useProcessingProgress } from '../features/batch-processing/hooks/useProcessingProgress';

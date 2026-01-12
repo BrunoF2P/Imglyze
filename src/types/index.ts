@@ -1,3 +1,5 @@
+import { PresetId } from "../features/settings/services/SettingsService";
+
 export type ImageFormat = 'JPG' | 'PNG' | 'WebP' | 'BMP';
 export type ProcessStatus = 'Pending' | 'Processing' | 'Done' | 'Error';
 
@@ -38,7 +40,7 @@ export interface AdvancedSettings {
 }
 
 export interface BatchSettings {
-    globalPreset: string;
+    globalPreset: PresetId;
     advancedMode: boolean;
     formatPresets: Record<ImageFormat, AdvancedSettings>;
     outputMode: OutputMode;
