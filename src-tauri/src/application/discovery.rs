@@ -1,3 +1,4 @@
+use crate::domain::models::{AppState, ImageFormat, ProcessStatus};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
@@ -10,22 +11,6 @@ use zip::ZipArchive;
 const MAX_ZIP_FILES: usize = 1000;
 const MAX_EXTRACT_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100MB
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
-pub enum ImageFormat {
-    JPG,
-    PNG,
-    WebP,
-    BMP,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum ProcessStatus {
-    Pending,
-    Processing,
-    Done,
-    Error,
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct FileItem {
@@ -35,8 +20,11 @@ pub struct FileItem {
     pub size: u64,
     pub format: ImageFormat,
     pub status: ProcessStatus,
+    #[serde(default)]
     pub optimized_size: Option<u64>,
+    #[serde(default)]
     pub optimized_path: Option<String>,
+    #[serde(default)]
     pub error: Option<String>,
     pub selected: bool,
 }
@@ -101,10 +89,7 @@ pub fn create_file_item(path: &Path) -> Option<FileItem> {
     let format = get_format(path)?;
 
     // Validate that it's actually an image by trying to detect its format from header
-    // This is faster than open()
-    if image::ImageFormat::from_path(path).is_err() {
-        return None;
-    }
+    // get_format check is sufficient as it checks magic bytes, from_path is redundant
 
     let metadata = std::fs::metadata(path).ok()?;
 
@@ -125,7 +110,7 @@ pub fn create_file_item(path: &Path) -> Option<FileItem> {
 fn process_path(
     path: &Path,
     app: &tauri::AppHandle,
-    state: &tauri::State<'_, crate::processing::AppState>,
+    state: &tauri::State<'_, AppState>,
     result: &mut DiscoveryResult,
 ) {
     let ext = path
@@ -156,7 +141,7 @@ fn process_path(
 fn handle_zip(
     zip_path: &Path,
     app: &tauri::AppHandle,
-    state: &tauri::State<'_, crate::processing::AppState>,
+    state: &tauri::State<'_, AppState>,
     result: &mut DiscoveryResult,
 ) {
     let zip_file = match fs::File::open(zip_path) {
@@ -201,10 +186,8 @@ fn handle_zip(
 
     let extract_dir = temp_dir.path().to_path_buf();
 
-    // Store temp_dir in state so it persists until app exit
-    if let Ok(mut dirs) = state.temp_dirs.lock() {
-        dirs.push(temp_dir);
-    }
+    // Don't push to state yet - wait until success to avoid "leak on panic"
+    // If we panic or return early, temp_dir will be dropped (deleted)
 
     let _ = app.emit(
         "log",
@@ -214,9 +197,11 @@ fn handle_zip(
         ),
     );
 
+    // Adaptive progress emission
+    let emit_frequency = (archive.len() / 20).max(10);
     for i in 0..archive.len() {
         // Emit progress periodically
-        if i % 10 == 0 || i == archive.len() - 1 {
+        if i % emit_frequency == 0 || i == archive.len() - 1 {
             let _ = app.emit("extraction-progress", (i + 1, archive.len()));
         }
 
@@ -240,7 +225,16 @@ fn handle_zip(
         }
 
         let outpath = match file.enclosed_name() {
-            Some(path) => extract_dir.join(path),
+            Some(path) => {
+                let full_path = extract_dir.join(path);
+                if !full_path.starts_with(&extract_dir) {
+                    result
+                        .errors
+                        .push(format!("Zip Slip detected: {:?}", file.name()));
+                    continue;
+                }
+                full_path
+            }
             None => continue,
         };
 
@@ -276,12 +270,17 @@ fn handle_zip(
             }
         }
     }
+
+    // Extraction successful (mostly), persist the directory
+    if let Ok(mut dirs) = state.temp_dirs.lock() {
+        dirs.push(temp_dir);
+    }
 }
 
 #[tauri::command]
 pub async fn discover_files(
     app: tauri::AppHandle,
-    state: tauri::State<'_, crate::processing::AppState>,
+    state: tauri::State<'_, AppState>,
     paths: Vec<String>,
 ) -> Result<DiscoveryResult, String> {
     let msg = format!("Starting discovery on {} paths...", paths.len());

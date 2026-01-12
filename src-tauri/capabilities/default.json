@@ -8,6 +8,19 @@
   "permissions": [
     "core:default",
     "dialog:default",
-    "core:window:allow-set-title"
+    "core:window:allow-set-title",
+    "core:path:default",
+    "core:event:default",
+    "dialog:allow-open",
+    "store:default",
+    "store:allow-load",
+    "store:allow-save",
+    "store:allow-get",
+    "store:allow-set"
+  ],
+  "allow": [
+    {
+      "cmd": "generate_thumbnail"
+    }
   ]
 }

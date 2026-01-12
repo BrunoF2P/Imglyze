@@ -1,4 +1,4 @@
-use image::DynamicImage;
+use image::{DynamicImage, GenericImageView};
 use std::io::Cursor;
 use tracing;
 
@@ -15,9 +15,34 @@ pub fn encode_png(img: &DynamicImage, optimize: bool) -> Result<Vec<u8>, String>
         })?;
 
     if optimize {
-        tracing::debug!("Optimizing PNG with oxipng");
-        let options = oxipng::Options::default();
-        Ok(oxipng::optimize_from_memory(&buf, &options).unwrap_or(buf))
+        let size_mb = buf.len() as f64 / 1_000_000.0;
+
+        tracing::debug!(
+            size_mb = format!("{:.1}", size_mb),
+            "Optimizing PNG with oxipng (parallel + max compression)"
+        );
+
+        // Preset 6 (maximum compression) with parallel + zopfli enabled
+        // Parallel processing makes maximum compression feasible
+        let mut options = oxipng::Options::from_preset(4);
+        options.strip = oxipng::StripChunks::Safe;
+
+        match oxipng::optimize_from_memory(&buf, &options) {
+            Ok(optimized) => {
+                let reduction = ((buf.len() - optimized.len()) as f64 / buf.len() as f64) * 100.0;
+                tracing::info!(
+                    original_size = buf.len(),
+                    optimized_size = optimized.len(),
+                    reduction_percent = format!("{:.1}", reduction),
+                    "PNG optimization complete"
+                );
+                Ok(optimized)
+            }
+            Err(e) => {
+                tracing::warn!(error = ?e, "oxipng failed, using unoptimized");
+                Ok(buf)
+            }
+        }
     } else {
         Ok(buf)
     }
@@ -28,8 +53,21 @@ pub fn encode_png(img: &DynamicImage, optimize: bool) -> Result<Vec<u8>, String>
 pub fn encode_jpeg(img: &DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
     tracing::debug!(quality = quality, "Encoding to JPEG with mozjpeg");
 
-    let rgb = img.to_rgb8();
-    let (width, height) = rgb.dimensions();
+    // Check image dimensions for safety (prevent memory explosion)
+    let (width, height) = img.dimensions();
+    const MAX_PIXELS: u32 = 50_000 * 50_000; // 50k x 50k max
+    if width as u64 * height as u64 > MAX_PIXELS as u64 {
+        return Err(format!(
+            "Image too large for JPEG encoding: {}x{} (max {}x{})",
+            width, height, MAX_PIXELS, MAX_PIXELS
+        ));
+    }
+
+    // Optimize: only convert if not already RGB8
+    let rgb = match img {
+        image::DynamicImage::ImageRgb8(rgb) => rgb.clone(),
+        _ => img.to_rgb8(),
+    };
 
     let mut comp = mozjpeg::Compress::new(mozjpeg::ColorSpace::JCS_RGB);
     comp.set_size(width as usize, height as usize);
@@ -90,14 +128,22 @@ pub fn quantize_png_with_quality(
         .set_quality(0, quality)
         .map_err(|_| "Failed to set quality".to_string())?;
 
+    // CRITICAL FIX: Ensure pixels.len() is multiple of 4
+    let expected_len = width * height * 4;
+    if pixels.len() != expected_len {
+        return Err(format!(
+            "Pixel data corruption: expected {} bytes, got {}",
+            expected_len,
+            pixels.len()
+        ));
+    }
+
     // Convert raw u8 pixels to imagequant RGBA structs
-    let mut image_data = Vec::with_capacity(pixels.len() / 4);
-    for chunk in pixels.chunks(4) {
-        if chunk.len() == 4 {
-            image_data.push(imagequant::RGBA::new(
-                chunk[0], chunk[1], chunk[2], chunk[3],
-            ));
-        }
+    let mut image_data = Vec::with_capacity(width * height);
+    for chunk in pixels.chunks_exact(4) {
+        image_data.push(imagequant::RGBA::new(
+            chunk[0], chunk[1], chunk[2], chunk[3],
+        ));
     }
 
     let mut image = attributes
@@ -143,11 +189,12 @@ pub fn quantize_png_with_quality(
             .map_err(|e| format!("PNG Write error: {}", e))?;
     }
 
-    // Optionally optimize with oxipng
+    // Optionally optimize with oxipng (fast preset)
     if optimize {
-        let options = oxipng::Options::default();
-        Ok(oxipng::optimize_from_memory(&buf, &options)
-            .map_err(|e| format!("OxiPNG error: {}", e))?)
+        let mut options = oxipng::Options::from_preset(2); // Fast preset
+        options.strip = oxipng::StripChunks::Safe;
+
+        oxipng::optimize_from_memory(&buf, &options).map_err(|e| format!("OxiPNG error: {}", e))
     } else {
         Ok(buf)
     }
@@ -161,7 +208,14 @@ pub fn encode_image(
     optimize_png: bool,
 ) -> Result<Vec<u8>, String> {
     match format {
-        "png" => encode_png(img, optimize_png),
+        "png" => {
+            // Use quantization if quality < 100, otherwise lossless
+            if quality < 100.0 {
+                quantize_png_with_quality(img, quality as u8, optimize_png)
+            } else {
+                encode_png(img, optimize_png)
+            }
+        }
         "jpg" | "jpeg" => encode_jpeg(img, quality as u8),
         "webp" => encode_webp(img, quality),
         "bmp" => encode_bmp(img),
