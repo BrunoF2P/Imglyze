@@ -216,7 +216,7 @@ fn process_single_file(
     };
 
     let (final_data, warning) =
-        if max_bytes.map_or(true, |limit| (initial_attempt.len() as u64) <= limit) {
+        if max_bytes.is_none_or(|limit| (initial_attempt.len() as u64) <= limit) {
             // Already optimized in encode_png if PNG
             let data = initial_attempt;
             (data, None)

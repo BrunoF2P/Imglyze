@@ -62,8 +62,10 @@ pub fn find_best_quality(
             if is_png_quant {
                 warning = Some(format!("Quantized (Q={}) to meet limit.", best_q));
                 // OPTIMIZE ONCE at the end
-                let mut options = Options::default();
-                options.strip = oxipng::StripChunks::Safe;
+                let options = Options {
+                    strip: oxipng::StripChunks::Safe,
+                    ..Default::default()
+                };
 
                 match optimize_from_memory(&data, &options) {
                     Ok(optimized) => Ok((optimized, warning)),
