@@ -222,3 +222,137 @@ pub fn encode_image(
         _ => Err(format!("Unsupported format: {}", format)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{Rgb, RgbImage};
+
+    fn create_test_image(width: u32, height: u32) -> DynamicImage {
+        let img = RgbImage::from_fn(width, height, |x, y| {
+            Rgb([(x % 256) as u8, (y % 256) as u8, 128])
+        });
+        DynamicImage::ImageRgb8(img)
+    }
+
+    #[test]
+    fn test_encode_png_without_optimization() {
+        let img = create_test_image(100, 100);
+        let result = encode_png(&img, false);
+        assert!(result.is_ok());
+
+        let data = result.unwrap();
+        assert!(!data.is_empty());
+        // PNG magic number
+        assert_eq!(&data[0..8], b"\x89PNG\r\n\x1a\n");
+    }
+
+    #[test]
+    fn test_encode_png_with_optimization() {
+        let img = create_test_image(100, 100);
+        let result = encode_png(&img, true);
+        assert!(result.is_ok());
+
+        let data = result.unwrap();
+        assert!(!data.is_empty());
+        assert_eq!(&data[0..8], b"\x89PNG\r\n\x1a\n");
+    }
+
+    #[test]
+    fn test_encode_jpeg() {
+        let img = create_test_image(100, 100);
+        let result = encode_jpeg(&img, 85);
+        assert!(result.is_ok());
+
+        let data = result.unwrap();
+        assert!(!data.is_empty());
+        // JPEG magic number
+        assert_eq!(&data[0..2], b"\xFF\xD8");
+    }
+
+    #[test]
+    fn test_encode_jpeg_quality_range() {
+        let img = create_test_image(50, 50);
+
+        // Low quality should produce smaller file
+        let low_q = encode_jpeg(&img, 20).unwrap();
+        // High quality should produce larger file
+        let high_q = encode_jpeg(&img, 90).unwrap();
+
+        assert!(low_q.len() < high_q.len());
+    }
+
+    #[test]
+    fn test_encode_jpeg_quality_validation() {
+        // Test that encoding works at various quality levels
+        let img = create_test_image(100, 100);
+        assert!(encode_jpeg(&img, 1).is_ok());
+        assert!(encode_jpeg(&img, 100).is_ok());
+    }
+
+    #[test]
+    fn test_encode_webp() {
+        let img = create_test_image(100, 100);
+        let result = encode_webp(&img, 80.0);
+        assert!(result.is_ok());
+
+        let data = result.unwrap();
+        assert!(!data.is_empty());
+        // WebP magic number (RIFF)
+        assert_eq!(&data[0..4], b"RIFF");
+        assert_eq!(&data[8..12], b"WEBP");
+    }
+
+    #[test]
+    fn test_encode_bmp() {
+        let img = create_test_image(50, 50);
+        let result = encode_bmp(&img);
+        assert!(result.is_ok());
+
+        let data = result.unwrap();
+        assert!(!data.is_empty());
+        // BMP magic number
+        assert_eq!(&data[0..2], b"BM");
+    }
+
+    #[test]
+    fn test_quantize_png_with_quality() {
+        let img = create_test_image(100, 100);
+        let result = quantize_png_with_quality(&img, 80, false);
+        assert!(result.is_ok());
+
+        let data = result.unwrap();
+        assert!(!data.is_empty());
+        assert_eq!(&data[0..8], b"\x89PNG\r\n\x1a\n");
+    }
+
+    #[test]
+    fn test_encode_image_dispatcher() {
+        let img = create_test_image(50, 50);
+
+        // Test PNG dispatch
+        assert!(encode_image(&img, "png", 100.0, false).is_ok());
+
+        // Test JPEG dispatch
+        assert!(encode_image(&img, "jpg", 85.0, false).is_ok());
+        assert!(encode_image(&img, "jpeg", 85.0, false).is_ok());
+
+        // Test WebP dispatch
+        assert!(encode_image(&img, "webp", 80.0, false).is_ok());
+
+        // Test BMP dispatch
+        assert!(encode_image(&img, "bmp", 100.0, false).is_ok());
+
+        // Test unsupported format
+        let result = encode_image(&img, "tiff", 100.0, false);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unsupported format"));
+    }
+
+    #[test]
+    fn test_png_quantization_below_100() {
+        let img = create_test_image(50, 50);
+        let result = encode_image(&img, "png", 80.0, false);
+        assert!(result.is_ok());
+    }
+}

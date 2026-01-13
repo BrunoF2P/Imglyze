@@ -68,3 +68,87 @@ pub struct BatchSettings {
     #[serde(default)]
     pub output_suffix: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_state_default() {
+        let state = AppState::default();
+        assert_eq!(
+            state
+                .processing_status
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
+    }
+
+    #[test]
+    fn test_image_format_serialization() {
+        let format = ImageFormat::JPG;
+        let json = serde_json::to_string(&format).unwrap();
+        assert_eq!(json, "\"JPG\"");
+
+        let deserialized: ImageFormat = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, ImageFormat::JPG);
+    }
+
+    #[test]
+    fn test_process_status() {
+        let status = ProcessStatus::Pending;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"Pending\"");
+    }
+
+    #[test]
+    fn test_output_mode_variants() {
+        assert_eq!(serde_json::to_string(&OutputMode::ZIP).unwrap(), "\"ZIP\"");
+        assert_eq!(
+            serde_json::to_string(&OutputMode::Folder).unwrap(),
+            "\"Folder\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OutputMode::Replace).unwrap(),
+            "\"Replace\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OutputMode::Suffix).unwrap(),
+            "\"Suffix\""
+        );
+    }
+
+    #[test]
+    fn test_advanced_settings_serialization() {
+        let settings = AdvancedSettings {
+            target_format: "Original".to_string(),
+            quality: 85.0,
+            max_file_size: Some(500),
+            keep_metadata: false,
+        };
+
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("targetFormat"));
+        assert!(json.contains("quality"));
+        assert!(json.contains("maxFileSize"));
+        assert!(json.contains("keepMetadata"));
+    }
+
+    #[test]
+    fn test_batch_settings_default_values() {
+        let json = r#"{
+            "globalPreset": "balanced",
+            "advancedMode": false,
+            "formatPresets": {},
+            "outputMode": "Replace"
+        }"#;
+
+        let settings: BatchSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.global_preset, "balanced");
+        assert!(!settings.advanced_mode);
+        assert_eq!(settings.output_mode, OutputMode::Replace);
+        assert!(settings.output_zip_name.is_none());
+        assert!(settings.output_path.is_none());
+        assert!(settings.output_suffix.is_none());
+    }
+}
