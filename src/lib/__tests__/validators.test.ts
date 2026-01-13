@@ -1,16 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { validateBatchSettings, validateFileSelection } from '../validators';
 import type { BatchSettings, FileItem } from '../../types';
+import { PresetId } from '../../features/settings/services/SettingsService';
 
 describe('validators', () => {
     describe('validateBatchSettings', () => {
         it('should validate valid settings', () => {
             const settings: BatchSettings = {
-                globalPreset: 'balanced',
+                globalPreset: PresetId.BALANCED,
                 advancedMode: false,
                 formatPresets: {
                     JPG: { targetFormat: 'Original', quality: 85, keepMetadata: false },
                     PNG: { targetFormat: 'Original', quality: 90, keepMetadata: false },
+                    WebP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
+                    BMP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
                 },
                 outputMode: 'Folder',
                 outputPath: '/tmp/output',
@@ -23,10 +26,13 @@ describe('validators', () => {
 
         it('should require ZIP name for ZIP output mode', () => {
             const settings: BatchSettings = {
-                globalPreset: 'balanced',
+                globalPreset: PresetId.BALANCED,
                 advancedMode: false,
                 formatPresets: {
                     JPG: { targetFormat: 'Original', quality: 85, keepMetadata: false },
+                    PNG: { targetFormat: 'Original', quality: 90, keepMetadata: false },
+                    WebP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
+                    BMP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
                 },
                 outputMode: 'ZIP',
                 outputZipName: '',
@@ -39,10 +45,13 @@ describe('validators', () => {
 
         it('should validate quality range', () => {
             const settings: BatchSettings = {
-                globalPreset: 'balanced',
+                globalPreset: PresetId.BALANCED,
                 advancedMode: true,
                 formatPresets: {
                     JPG: { targetFormat: 'Original', quality: 150, keepMetadata: false },
+                    PNG: { targetFormat: 'Original', quality: 90, keepMetadata: false },
+                    WebP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
+                    BMP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
                 },
                 outputMode: 'Replace',
             };
@@ -54,10 +63,13 @@ describe('validators', () => {
 
         it('should reject negative quality', () => {
             const settings: BatchSettings = {
-                globalPreset: 'balanced',
+                globalPreset: PresetId.BALANCED,
                 advancedMode: true,
                 formatPresets: {
+                    JPG: { targetFormat: 'Original', quality: 85, keepMetadata: false },
                     PNG: { targetFormat: 'Original', quality: -10, keepMetadata: false },
+                    WebP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
+                    BMP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
                 },
                 outputMode: 'Replace',
             };
@@ -69,7 +81,7 @@ describe('validators', () => {
 
         it('should validate maxFileSize if provided', () => {
             const settings: BatchSettings = {
-                globalPreset: 'balanced',
+                globalPreset: PresetId.BALANCED,
                 advancedMode: true,
                 formatPresets: {
                     JPG: {
@@ -78,6 +90,9 @@ describe('validators', () => {
                         maxFileSize: -100,
                         keepMetadata: false,
                     },
+                    PNG: { targetFormat: 'Original', quality: 90, keepMetadata: false },
+                    WebP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
+                    BMP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
                 },
                 outputMode: 'Replace',
             };
@@ -89,7 +104,7 @@ describe('validators', () => {
 
         it('should accept valid maxFileSize', () => {
             const settings: BatchSettings = {
-                globalPreset: 'balanced',
+                globalPreset: PresetId.BALANCED,
                 advancedMode: true,
                 formatPresets: {
                     JPG: {
@@ -98,6 +113,9 @@ describe('validators', () => {
                         maxFileSize: 500,
                         keepMetadata: false,
                     },
+                    PNG: { targetFormat: 'Original', quality: 90, keepMetadata: false },
+                    WebP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
+                    BMP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
                 },
                 outputMode: 'Replace',
             };

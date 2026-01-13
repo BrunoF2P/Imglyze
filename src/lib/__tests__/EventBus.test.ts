@@ -67,7 +67,7 @@ describe('ProcessingEventBus', () => {
             count1++;
         });
 
-        const unsubscribe2 = eventBus.subscribe('test-event', () => {
+        eventBus.subscribe('test-event', () => {
             count2++;
         });
 
