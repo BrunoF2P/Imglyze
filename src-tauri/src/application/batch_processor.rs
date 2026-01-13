@@ -76,7 +76,23 @@ pub async fn run_batch(
             ),
         );
 
-        match process_single_file(&item, quality, &target_ext, max_size, keep_metadata) {
+        // Clone data needed for the blocking task
+        let item_clone = item.clone();
+        let target_ext_owned = target_ext.to_string();
+
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            process_single_file(
+                &item_clone,
+                quality,
+                &target_ext_owned,
+                max_size,
+                keep_metadata,
+            )
+        })
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?;
+
+        match result {
             Ok((data, warning)) => {
                 // Save file using Repository
                 let repo = FsImageRepository;
