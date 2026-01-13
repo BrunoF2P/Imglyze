@@ -1,0 +1,125 @@
+= Architecture Documentation
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+
+== Overview
+
+Imglyze is built as a cross-platform desktop application using **Tauri**, combining a **React** frontend (Presentation Layer) with a high-performance **Rust** backend (Application & Core Layers).
+
+The system follows **Clean Architecture** (also known as Hexagonal Architecture or Ports & Adapters) principles to ensure separation of concerns, testability, and maintainability.
+
+== High-Level Architecture
+
+The application is divided into four distinct concentric layers, where dependencies point inwards. Inner layers know nothing about outer layers.
+
+[mermaid]
+----
+graph TD
+    subgraph Infrastructure [Infrastructure Layer]
+        Encoders[Encoders]
+        Archive[Archive Handler]
+        Metadata[Metadata Handler]
+    end
+
+    subgraph Adapters [Interface Adapters]
+        Tauri[Tauri Commands]
+        Repos[Repositories]
+    end
+
+    subgraph App [Application Layer]
+        Services[Use Cases / Services]
+    end
+
+    subgraph Domain [Domain Layer]
+        Models[Entities / Models]
+    end
+
+    Tauri --> Services
+    Services --> Models
+    Services --> Repos
+    Repos -.-> Encoders
+
+    style Infrastructure fill:#f3e5f5,stroke:#4a148c
+    style Adapters fill:#e1f5fe,stroke:#01579b
+    style App fill:#ffe0b2,stroke:#e65100
+    style Domain fill:#e8f5e9,stroke:#1b5e20
+----
+
+=== 1. Presentation Layer (Frontend)
+
+* **Tech Stack**: React 18, TypeScript, Tailwind CSS, Shadcn UI
+* **Responsibility**: Handling user interactions, state management, and rendering the UI.
+* **Key Components**:
+** `src/components`: Reusable UI components.
+** `src/features`: Feature-specific logic (e.g., `settings`, `processing`).
+** `src/lib`: Utility functions and shared logic.
+** `EventBus`: Decoupled event system for non-parent-child communication.
+
+=== 2. Application Layer (Backend)
+
+* **Responsibility**: Orchestrating use cases and application flow. It bridges the frontend (via Tauri commands) and the domain logic.
+* **Key Components**:
+** `Commands`: Tauri commands (`#[tauri::command]`) that serve as entry points.
+** `Discovery`: Logic for finding and filtering files.
+** `Processor`: Batch processing orchestration.
+
+=== 3. Domain Layer (Core)
+
+* **Responsibility**: Pure business logic and enterprise rules. This layer is independent of any frameworks or external tools.
+* **Key Components**:
+** `Models`: Core data structures (`ImageFormat`, `AppState`, `BatchSettings`).
+** `Services`: Pure business logic (e.g., `OptimizerService`).
+** `Processors`: Image manipulation logic.
+
+=== 4. Infrastructure Layer
+
+* **Responsibility**: Implementing interfaces defined by inner layers and interacting with external systems (File System, OS, Libraries).
+* **Key Components**:
+** `Encoders`: Implementations for `mozjpeg`, `oxipng`, `webp`.
+** `Archive`: ZIP file handling logic.
+** `Metadata`: EXIF reading/writing implementations.
+
+== Design Patterns
+
+Imglyze leverages several documented design patterns to solve common architectural problems.
+
+=== Backend (Rust)
+
+. **Repository Pattern**
+* Abstracts the details of file system operations and image encoding libraries.
+* Example: `ImageEncoder` trait implemented by specific format encoders.
+
+. **Command Pattern**
+* Tauri commands act as the boundary between frontend and backend, encapsulating requests as objects (functions).
+
+. **Strategy Pattern**
+* Used for image optimization algorithms where different strategies (strategies) are selected at runtime based on the image format (Context).
+
+. **Builder Pattern**
+* utilized for constructing complex configuration objects and processing pipelines.
+
+=== Frontend (React)
+
+. **Observer Pattern**
+* Implemented via the `EventBus` for decoupled communication between components (e.g., progress updates).
+
+. **Context API**
+* Used for global state management (Settings, Processing State) without prop drilling.
+
+. **Composition**
+* Heavy use of React component composition for building complex UIs from small, focused atomic components.
+
+== Cross-Cutting Concerns
+
+=== Error Handling
+* **Rust**: Uses `Result<T, E>` and `thiserror` for typed, recoverable errors. Custom `AppError` enum maps backend errors to user-friendly frontend messages.
+* **Frontend**: Error boundaries and toast notifications for displaying feedback.
+
+=== Concurrency
+* **Rust**: Leverages Rust's async/await and Rayon for parallel image processing, maximizing CPU usage without blocking the UI thread.
+* **Tauri**: Handles IPC asynchronously to ensure interface responsiveness.
+
+=== State Management
+* **Shared State**: Managed via Tauri's `State<T>` (e.g., `AppState`) for thread-safe access to application configuration across commands.
