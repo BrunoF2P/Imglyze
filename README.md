@@ -1,412 +1,154 @@
 <div align="center">
 
-<img src="docs/images/logo.png" alt="Imglyze Logo" width="128" height="128">
+<img src="docs/images/logo.png" alt="Logo do Imglyze" width="180" height="180">
 
 # Imglyze
 
-**Professional Image Optimization Tool**
+### Suas imagens, com menos peso.
 
-[![Tauri](https://img.shields.io/badge/Tauri-2.0-blue.svg)](https://tauri.app/)
-[![React](https://img.shields.io/badge/React-19.1-61dafb.svg)](https://reactjs.org/)
-[![Rust](https://img.shields.io/badge/Rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/tests-48%20passing-success.svg)](#-testing)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+Otimize, converta e redimensione imagens em lote.<br>
+Compare o resultado antes de exportar, com processamento local no seu computador.
 
-*A modern, cross-platform desktop application for intelligent batch image optimization*
+**Rust** · **Tauri 2** · **React** · **TypeScript**
 
-[Features](#-features) • [Installation](#-installation) • [Architecture](#-architecture) • [Technologies](#-technologies) • [Development](#-development)
+[![CI](https://github.com/BrunoF2P/Imglyze/actions/workflows/ci.yml/badge.svg)](https://github.com/BrunoF2P/Imglyze/actions/workflows/ci.yml)
+
+[Recursos](#recursos) · [Formatos](#formatos) · [Desenvolvimento](#desenvolvimento) · [Documentação](#documentação)
 
 </div>
 
 ---
 
-## 📝 About
+## Veja a diferença
 
-**Imglyze** is a powerful desktop application designed for professional image optimization. Built with performance and user experience in mind, it combines the speed of Rust with the flexibility of React to deliver a seamless batch processing experience.
+<div align="center">
 
-Whether you're a web developer optimizing assets, a photographer preparing images for publication, or anyone dealing with large collections of images, Imglyze provides intelligent optimization while maintaining visual quality.
+<img src="docs/images/comparison-demo.gif" alt="Comparação animada entre a imagem original e a saída otimizada pelo Imglyze" width="640">
 
-### 🎯 Key Highlights
+<sub>Demonstração com uma imagem sintética do benchmark e uma saída real do motor.</sub>
 
-- **🚀 High Performance** - Rust-powered backend for lightning-fast processing
-- **🎨 Modern UI** - Beautiful, responsive interface with dark mode support
-- **🔧 Flexible Presets** - Predefined optimization profiles or custom settings
-- **📊 Visual Comparison** - Interactive before/after viewer with OpenSeadragon
-- **🌍 Multi-Format** - Support for JPG, PNG, WebP, and BMP formats
-- **📦 Batch Processing** - Handle multiple files, folders, and ZIP archives
-- **🔒 Privacy First** - All processing happens locally on your machine
+</div>
 
----
+A comparação no aplicativo oferece zoom e um controle deslizante para inspecionar o antes e depois. A prévia usa o mesmo pipeline de processamento do lote.
 
-## ✨ Features
+## Recursos
 
-### Image Processing
+| | O que você pode fazer |
+| :--- | :--- |
+| **Compressão em lote** | Processar várias imagens em paralelo, com qualidade e tamanho desejado configuráveis por formato. |
+| **Conversão** | Exportar em JPEG, PNG, WebP, BMP ou AVIF. Importar SVG e rasterizá-lo para trabalhar com os demais formatos. |
+| **Redimensionamento** | Definir largura, altura ou percentual, mantendo a proporção e evitando ampliar imagens menores. |
+| **Comparação visual** | Conferir uma amostra antes de iniciar o lote e comparar os resultados depois do processamento. |
+| **Receitas reutilizáveis** | Salvar configurações em presets nomeados e reaplicá-las em outros lotes. |
+| **Fila organizada** | Buscar arquivos, filtrar por status e ordenar por nome, tamanho ou economia em bytes e percentual. |
+| **Exportação flexível** | Salvar em uma pasta, gerar ZIP com hierarquia, adicionar sufixos ou substituir os originais. |
+| **Controle do lote** | Pausar, cancelar e acompanhar resultados, avisos e erros por arquivo. |
 
-- **Multi-Format Support**: Process JPG, PNG, WebP, and BMP images
-- **Smart Optimization**: Intelligent compression algorithms per format
-- **Format Conversion**: Convert between supported image formats
-- **Quality Control**: Fine-tune quality vs. file size trade-offs
-- **File Size Limits**: Set maximum output file sizes
-- **Metadata Preservation**: Optionally keep or strip EXIF data
+A interface tem temas claro e escuro, português e inglês, navegação por teclado nos diálogos e uma fila virtualizada para grandes lotes. Ao terminar em segundo plano, o app pode avisar por notificação do sistema, conforme a permissão habilitada.
 
-### Batch Operations
+## Formatos
 
-- **Multiple Input Sources**:
-  - Individual image files
-  - Entire folders (with subdirectory support)
-  - ZIP archives
-- **Flexible Output Options**:
-  - ZIP archive with organized structure
-  - Folder with preserved hierarchy
-  - Replace original files
-  - Save with custom suffix
-- **Progress Tracking**: Real-time processing status with detailed stats
-- **Error Handling**: Comprehensive error reporting per file
+| Formato | Importar | Exportar |
+| :--- | :---: | :---: |
+| JPEG / JPG | ✓ | ✓ |
+| PNG | ✓ | ✓ |
+| WebP | ✓ | ✓ |
+| AVIF | ✓ | ✓ |
+| BMP | ✓ | ✓ |
+| SVG | ✓ | — |
 
-### User Experience
+SVG é rasterizado e exportado como PNG por padrão. As prévias de SVG e AVIF são preparadas como PNG para funcionar também em webviews sem suporte ao decoder AVIF.
 
-- **Drag & Drop**: Intuitive file selection
-- **Visual Comparison**: Interactive slider to compare original vs. optimized
-- **Preset Management**: Quick access to common optimization profiles
-- **Advanced Mode**: Per-format customization options
-- **System Theme Sync**: Automatic dark/light mode detection
-- **Internationalization**: Built-in i18n support (ready for multiple languages)
+## Do arquivo ao resultado
 
-## 📊 Compression Results
+1. **Adicione suas imagens.** Importe arquivos, pastas ou um ZIP.
+2. **Ajuste a saída.** Escolha o formato, a compressão, as dimensões e o destino — ou use uma receita salva.
+3. **Confira a prévia.** Compare uma amostra para avaliar suas configurações.
+4. **Processe e exporte.** Acompanhe o lote e abra a pasta de destino pelo aplicativo.
 
-> **Note**: Imglyze's smart compression algorithm typically achieves **70-90% size reduction** with high visual fidelity.
+<details>
+<summary><strong>Qualidade, segurança e limites de processamento</strong></summary>
 
-![Compression Comparison](docs/images/compression-comparison.png)
-*Comparison: Original vs Optimized (80% Quality)*
+- **Qualidade máxima:** o valor 100 usa caminhos sem perdas em PNG e WebP. JPEG e AVIF continuam sendo formatos com perdas nessa configuração.
+- **Tamanho desejado:** uma imagem pode exceder o limite solicitado. Nesse caso, o aplicativo registra um aviso.
+- **Métrica visual:** o SSIM opcional é calculado sobre luminância, com imagem limitada a 512 px. É um indicador aproximado, não uma garantia de qualidade perceptual.
+- **Metadados:** o caminho atual preserva metadata em JPEG, PNG e WebP quando solicitado. Outros formatos registram aviso.
+- **Concorrência:** o pool Tokio usa até oito CPUs físicas e um orçamento estimado de 768 MiB compartilhado com as miniaturas. Esse orçamento controla a concorrência; não é um limite rígido de memória do processo. Miniaturas têm no máximo duas tarefas simultâneas.
+- **Redimensionamento:** o motor usa SIMD, com filtros Lanczos3 ou Catmull-Rom.
+- **Arquivos de saída:** gravação atômica e proteção contra colisões. Ao substituir um original, uma cópia temporária permite compará-lo durante a sessão; ela não constitui um backup permanente.
+- **Pausa e cancelamento:** a pausa impede novos trabalhos; encoders em execução terminam. O cancelamento impede novos trabalhos, bloqueia gravações após sua verificação e cancela a montagem do ZIP. Arquivos já gravados permanecem disponíveis.
+- **Limites de entrada:** imagens de até 100 megapixels; ZIPs com até 1.000 entradas, 100 MiB por arquivo e 512 MiB extraídos no total. SVGs não carregam recursos externos.
+- **Temporários:** arquivos de importação e prévia permanecem durante a sessão e são removidos no encerramento normal.
 
----
+</details>
 
-## 🏗️ Architecture
+## Desenvolvimento
 
-Imglyze follows **Clean Architecture** principles with a clear separation of concerns.
+Você precisa de **Node.js 24+**, **Rust estável** e das dependências nativas do Tauri para seu sistema. A decodificação AVIF requer **dav1d 1.3+**.
 
-For a detailed deep-dive into the system architecture, layers, and design decisions, please refer to the [Architecture Documentation](docs/03-architecture.adoc).
+<details>
+<summary><strong>Preparar o Linux — Debian Trixie</strong></summary>
 
-### Design Patterns
+```sh
+sudo apt install build-essential libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libdav1d-dev patchelf pkg-config
+```
 
-#### Backend (Rust)
+O Debian Trixie fornece uma versão compatível de dav1d. Consulte a [documentação de distribuição](docs/RELEASE.md) para os ambientes Windows, macOS e Linux usados no empacotamento.
 
-- **Repository Pattern**: Abstracts file system operations and archive handling
-- **Service Layer**: Encapsulates business logic for image optimization
-- **Command Pattern**: Tauri commands act as application entry points
-- **Strategy Pattern**: Different optimization strategies per image format
-- **Builder Pattern**: Used in configuration setup and image processing pipelines
+</details>
 
-#### Frontend (React)
+Instale as dependências e inicie o aplicativo desktop:
 
-- **Context API**: Global state management for batch processing
-- **Custom Hooks**: Reusable logic for file handling, settings, and theme
-- **Component Composition**: Modular UI components with clear responsibilities
-- **Feature-Based Structure**: Organized by features (batch-processing, settings)
-- **Error Boundaries**: Graceful error handling and recovery
+```sh
+npm ci
+npm run tauri dev
+```
 
----
+Para trabalhar apenas na interface, use `npm run dev`. Importação de arquivos, persistência, encoders e notificações precisam do runtime desktop Tauri.
 
-## 🛠️ Technologies
+<details>
+<summary><strong>Executar as verificações do projeto</strong></summary>
 
-### Frontend
-
-| Technology | Purpose |
-|-----------|---------|
-| **React 19** | UI framework with modern hooks and concurrent features |
-| **TypeScript** | Type-safe development with enhanced IDE support |
-| **Tailwind CSS 4** | Utility-first styling with custom design system |
-| **Framer Motion** | Smooth animations and transitions |
-| **OpenSeadragon** | Deep zoom image viewer for comparisons |
-| **i18next** | Internationalization framework |
-| **Zod** | Runtime type validation and schema definition |
-| **Vite** | Fast build tool and dev server |
-
-### Backend
-
-| Library | Purpose |
-|---------|---------|
-| **Tauri 2** | Cross-platform desktop framework |
-| **image** | Image decoding and manipulation |
-| **mozjpeg** | Optimal JPEG encoding (better than libjpeg-turbo) |
-| **oxipng** | Lossless PNG optimizer with Zopfli compression |
-| **webp** | WebP format encoding/decoding |
-| **imagequant** | High-quality color quantization for PNGs |
-| **img-parts** | EXIF metadata reading and writing |
-| **zip** | ZIP archive creation and extraction |
-| **tokio** | Async runtime for concurrent processing |
-| **serde** | Serialization/deserialization framework |
-| **tracing** | Structured logging and diagnostics |
-
-### Development Tools
-
-- **NPM** - Package management
-- **Cargo** - Rust build system and package manager
-- **ESLint** - JavaScript/TypeScript linting
-- **Clippy** - Rust linting
-- **GitLab CI** - Continuous integration and deployment
-
----
-
-## 🎨 Design System
-
-The application features a custom design system with:
-
-- **Custom Color Palette**: Carefully crafted light and dark themes
-- **Glassmorphism Effects**: Modern frosted glass UI elements
-- **Smooth Animations**: Micro-interactions for enhanced UX
-- **Responsive Layout**: Adapts to different window sizes
-- **Custom Scrollbars**: Styled scrollbars matching the theme
-- **Typography**: Clean, readable font hierarchy
-
----
-
-## 📦 Installation
-
-### Pre-built Binaries
-
-Download the latest release for your platform:
-
-- **Linux**: `.deb` or `.rpm` packages
-- **Windows**: `.msi` installer (coming soon)
-- **macOS**: `.dmg` package (coming soon)
-
-### Building from Source
-
-#### Prerequisites
-
-- **Node.js** 18+ and npm
-- **Rust** 1.70+ (install via [rustup](https://rustup.rs/))
-- **System Dependencies** (Linux):
-
-  ```bash
-  sudo apt install libwebkit2gtk-4.1-dev \
-    build-essential \
-    curl \
-    wget \
-    file \
-    libssl-dev \
-    libayatana-appindicator3-dev \
-    librsvg2-dev
-  ```
-
-#### Build Steps
-
-1. **Clone the repository**
-
-   ```bash
-   git clone https://gitlab.com/BrunoF2P/imglyze.git
-   cd imglyze
-   ```
-
-2. **Install dependencies**
-
-   ```bash
-   npm install
-   ```
-
-3. **Run in development mode**
-
-   ```bash
-   npm run tauri dev
-   ```
-
-4. **Build for production**
-
-   ```bash
-   npm run tauri build
-   ```
-
-The compiled application will be in `src-tauri/target/release/bundle/`.
-
----
-
-## 🧪 Testing
-
-Imglyze includes comprehensive test suites for both frontend and backend code.
-
-### Test Infrastructure
-
-- **Frontend**: Vitest with React Testing Library
-- **Backend**: Cargo test framework with unit and integration tests
-- **Coverage**: V8 coverage provider for frontend, built-in cargo coverage
-
-### Running Tests
-
-#### Frontend Tests
-
-```bash
-# Run all tests
+```sh
+npm run typecheck
 npm test
-
-# Run tests with UI
-npm run test:ui
-
-# Generate coverage report
-npm run test:coverage
+npm run build
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-#### Backend Tests
+Use `npm run test:watch` durante o desenvolvimento e `npm run test:coverage` para gerar cobertura. A verificação do frontend usa TypeScript e Vitest; o projeto não possui ESLint configurado.
 
-```bash
-cd src-tauri
+</details>
 
-# Run all Rust tests
-cargo test
+## Documentação
 
-# Run tests with output
-cargo test -- --nocapture
+| Guia | Conteúdo |
+| :--- | :--- |
+| [Roadmap v1](docs/ROADMAP_V1_STRATEGY.md) | Estratégia do produto e estado de implementação. |
+| [Arquitetura](docs/03-architecture.adoc) | Organização do projeto e responsabilidades dos componentes. |
+| [Benchmarks](docs/BENCHMARKS.md) | Método reproduzível, resultados locais e limites das medições. |
+| [Distribuição](docs/RELEASE.md) | Pipeline, runners, instaladores e assinatura. |
+| [Notas de versão](docs/RELEASE_NOTES.md) | Mudanças e pontos de atenção da versão. |
+| [Demonstração interativa](docs/site/index.html) | Página local com comparação de imagens. |
 
-# Run specific test
-cargo test test_encode_jpeg
+Para abrir a demonstração, execute:
+
+```sh
+python3 -m http.server 8080 --directory docs/site
 ```
 
-### Test Structure
+Depois acesse [localhost:8080](http://localhost:8080). A página e suas imagens são locais, sem dependências de CDN.
 
-**Frontend Tests** (`src/lib/__tests__/`)
+**Estado da distribuição:** o empacotamento está configurado para Windows (MSI/NSIS), macOS (DMG universal) e Linux (AppImage/DEB/RPM). Tags executam os builds no GitHub Actions e no GitLab CI. O GitHub prepara uma release em rascunho; no GitLab, a publicação é um job manual. Certificados são opcionais para gerar os pacotes e necessários para assinatura de publicador e notarização. Instalação e assinatura ainda precisam de validação real nesses sistemas.
 
-- **utils.test.ts** (14 tests) - Utility functions (formatBytes, cn, etc.)
-- **validators.test.ts** (10 tests) - Settings and file validation
-- **EventBus.test.ts** (8 tests) - Event subscription and emission
-
-**Backend Tests** (`src-tauri/src/`)
-
-- **domain/models.rs** (6 tests) - Domain models serialization and defaults
-- **infrastructure/encoders.rs** (11 tests) - Image encoding (PNG, JPEG, WebP, BMP, quantization)
-
-### Current Test Suite
-
-- **Frontend**: 32 tests passing (utils, validators, EventBus)
-- **Backend**: 16 tests passing (domain models, image encoders)
-- **Total**: 48 comprehensive tests
-
-These tests cover critical functionality including:
-
-- Image encoding/decoding for all formats (PNG, JPEG, WebP, BMP)
-- Quality control and quantization algorithms
-- Settings validation and sanitization
-- Core utility functions and event handling
-
-### Adding New Tests
-
-When adding new features, please include corresponding tests:
-
-1. **Frontend**: Create test files adjacent to source in `__tests__` directories
-2. **Backend**: Add `#[cfg(test)]` modules at the end of Rust source files
-3. **Integration Tests**: Add to `src-tauri/tests/` for end-to-end scenarios
-
-The test infrastructure is in place with Vitest and Cargo Test configured for easy expansion.
-
----
-
-## 🚀 Development
-
-### Project Structure
-
-```
-imglyze/
-├── src/                      # React frontend
-│   ├── features/             # Feature modules
-│   │   ├── batch-processing/ # Batch processing feature
-│   │   └── settings/         # Settings management
-│   ├── components/           # Reusable UI components
-│   ├── contexts/             # React contexts
-│   ├── hooks/                # Custom React hooks
-│   ├── lib/                  # Utility functions
-│   ├── types/                # TypeScript type definitions
-│   └── i18n/                 # Internationalization
-├── src-tauri/                # Rust backend
-│   ├── src/
-│   │   ├── application/      # Application layer (commands, use cases)
-│   │   ├── domain/           # Domain layer (models, services)
-│   │   ├── infrastructure/   # Infrastructure layer (encoders, repos)
-│   │   └── theme/            # System theme detection
-│   ├── Cargo.toml            # Rust dependencies
-│   └── tauri.conf.json       # Tauri configuration
-└── package.json              # Node dependencies
-```
-
-### Running Tests
-
-```bash
-# Frontend tests
-npm test
-
-# Backend tests
-cd src-tauri
-cargo test
-```
-
-### Code Quality
-
-```bash
-# Rust linting
-cd src-tauri
-cargo clippy
-
-# TypeScript linting
-npm run lint
-```
-
----
-
-## 🎯 Usage
-
-1. **Launch the application**
-2. **Select images** via:
-   - Drag and drop
-   - File picker (single/multiple files)
-   - Folder picker (includes subdirectories)
-   - ZIP archive picker
-3. **Review discovered files** in the analysis view
-4. **Configure settings**:
-   - Choose a preset (Balanced, Maximum Quality, Maximum Compression)
-   - Or enable Advanced Mode for per-format customization
-5. **Select output mode**:
-   - ZIP archive
-   - Folder (preserves structure)
-   - Replace originals
-   - Add suffix to filenames
-6. **Start processing** and monitor progress
-7. **Review results** with visual comparisons
-8. **Export** your optimized images
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-### Development Guidelines
-
-- Follow the existing code style
-- Write tests for new features
-- Update documentation as needed
-- Use conventional commits for commit messages
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- **mozjpeg** - Superior JPEG encoding
-- **oxipng** - Excellent PNG optimization
-- **Tauri** - Amazing cross-platform framework
-- **React** - Powerful UI library
-- The open-source community for inspiration and tools
+As medições atuais são preliminares e usam uma fixture sintética local. A comparação em produção com Caesium e ImageOptim permanece pendente.
 
 ---
 
 <div align="center">
 
-**Made with ❤️ and Rust**
-
-[Report Bug](https://gitlab.com/BrunoF2P/imglyze/-/issues) • [Request Feature](https://gitlab.com/BrunoF2P/imglyze/-/issues)
+Feito com Rust e React · Licença <a href="LICENSE">MIT</a>
 
 </div>

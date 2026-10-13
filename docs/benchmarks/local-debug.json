@@ -1,0 +1,78 @@
+{
+  "arch": "x86_64",
+  "corpus": "synthetic gradients; not photographic",
+  "files": 12,
+  "inputBytes": 1337896,
+  "os": "linux",
+  "physicalCpus": 8,
+  "profile": "debug",
+  "runs": [
+    {
+      "meanSsimPercent": 89.86879705170672,
+      "outputBytes": 116706,
+      "seconds": 17.403516224,
+      "workers": 1
+    },
+    {
+      "meanSsimPercent": 89.86879705170674,
+      "outputBytes": 116706,
+      "seconds": 2.968800372,
+      "workers": 8
+    }
+  ],
+  "settings": {
+    "advancedMode": true,
+    "formatPresets": {
+      "AVIF": {
+        "keepMetadata": false,
+        "maxFileSize": null,
+        "quality": 80.0,
+        "targetFormat": "WebP"
+      },
+      "BMP": {
+        "keepMetadata": false,
+        "maxFileSize": null,
+        "quality": 80.0,
+        "targetFormat": "WebP"
+      },
+      "JPG": {
+        "keepMetadata": false,
+        "maxFileSize": null,
+        "quality": 80.0,
+        "targetFormat": "WebP"
+      },
+      "PNG": {
+        "keepMetadata": false,
+        "maxFileSize": null,
+        "quality": 80.0,
+        "targetFormat": "WebP"
+      },
+      "SVG": {
+        "keepMetadata": false,
+        "maxFileSize": null,
+        "quality": 80.0,
+        "targetFormat": "WebP"
+      },
+      "WebP": {
+        "keepMetadata": false,
+        "maxFileSize": null,
+        "quality": 80.0,
+        "targetFormat": "WebP"
+      }
+    },
+    "globalPreset": "balanced",
+    "measureQuality": true,
+    "outputFormat": null,
+    "outputMode": "Folder",
+    "outputPath": null,
+    "outputSuffix": null,
+    "outputZipName": null,
+    "resize": {
+      "filter": "Lanczos3",
+      "height": 1920,
+      "mode": "Original",
+      "percent": 100.0,
+      "width": 1920
+    }
+  }
+}
