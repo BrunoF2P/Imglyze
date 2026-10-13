@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useCallback, useMemo, useReducer, useState } from 'react';
+import React, { createContext, useContext, useEffect, useCallback, useMemo, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useTranslation } from 'react-i18next';
 import { FileItem, BatchSettings, BatchStats, ImageFormat, AdvancedSettings } from '../types';
@@ -6,8 +6,9 @@ import { batchProcessingService } from '../features/batch-processing/services/Ba
 import { settingsService } from '../features/settings/services/SettingsService';
 import { statsCalculationService } from '../features/batch-processing/services/StatsCalculationService';
 
-import { batchReducer } from '../reducers/batchReducer';
-import { AppState, BatchState } from '../actions/types';
+import { useBatchStore } from '../stores/batchStore';
+import { toast } from 'sonner';
+import { AppState } from '../actions/types';
 import * as fileActions from '../actions/fileActions';
 import * as settingsActions from '../actions/settingsActions';
 import * as processingActions from '../actions/processingActions';
@@ -48,22 +49,8 @@ const BatchContext = createContext<BatchContextType | null>(null);
 export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { t } = useTranslation();
 
-    // Get default settings
-    const getDefaultSettings = useCallback((): BatchSettings => {
-        return settingsService.getDefaultSettings();
-    }, []);
-
-    const initialState: BatchState = {
-        status: 'IDLE',
-        files: [],
-        settings: getDefaultSettings(),
-        logs: [],
-        isPaused: false,
-        comparingFile: null,
-        batchTiming: {}
-    };
-
-    const [state, dispatch] = useReducer(batchReducer, initialState);
+    const state = useBatchStore(s => s.batch);
+    const dispatch = useBatchStore(s => s.dispatch);
     const [settingsLoaded, setSettingsLoaded] = useState(false);
     // Persistence: Load settings on mount
     useEffect(() => {
@@ -79,7 +66,7 @@ export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!settingsLoaded) return; // ✅ Não salva antes de carregar
 
         const timeout = setTimeout(() => {
-            settingsService.saveSettings(state.settings);
+            settingsService.saveSettings(state.settings).catch(() => toast.error(t('v1.saveError')));
         }, 500);
         return () => clearTimeout(timeout);
     }, [state.settings, settingsLoaded]);
@@ -98,11 +85,21 @@ export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const unlistenLogs = batchProcessingService.subscribeToLogs((log) => {
             dispatch({ type: 'ADD_LOG', payload: `[${new Date().toLocaleTimeString()}] ${log}` });
         });
-        const unlistenProgress = batchProcessingService.subscribeToProgress((updatedFile) => {
-            dispatch({ type: 'UPDATE_FILE', payload: updatedFile });
+        const updates = new Map<string, FileItem>();
+        const flush = () => {
+            if (updates.size) dispatch({ type: 'UPDATE_FILES', payload: [...updates.values()] });
+            updates.clear();
+        };
+        const stopStatus = useBatchStore.subscribe((next, previous) => {
+            if (next.batch.status !== previous.batch.status) flush();
         });
+        const interval = setInterval(flush, 60);
+        const unlistenProgress = batchProcessingService.subscribeToProgress(file => updates.set(file.id, file));
 
         return () => {
+            clearInterval(interval);
+            stopStatus();
+            flush();
             unlistenLogs();
             unlistenProgress();
         };
@@ -111,6 +108,7 @@ export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Window title update
     useEffect(() => {
         const updateTitle = async () => {
+            if (!("__TAURI_INTERNALS__" in window)) return;
             const win = getCurrentWindow();
             let title = t('windowTitle.idle');
             if (state.status === 'ANALYSIS') {
@@ -133,34 +131,14 @@ export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     // Compatibility wrappers for existing consumers using setFiles/setSettings
     const setFiles = useCallback((value: React.SetStateAction<FileItem[]>) => {
-        // Handle functional update or direct value
-        if (typeof value === 'function') {
-            // This is tricky with reducer, but we can access current state in reducer.
-            // For now, simple implementation assuming we have access to current files if needed,
-            // but useReducer dispatch doesn't give us current state in the action payload easily for func updates.
-            // However, most calls are likely direct sets or simple filters.
-            // We'll simplify: strictly allow direct arrays or basic updates.
-            // Ideally refactor consumers to not use setFiles(prev => ...).
-            console.warn("setFiles functional update not fully supported in refactor yet, using direct dispatch if possible");
-            // Since we can't easily execute the generic SetStateAction function without the state here...
-            // We will assume for this refactor consumers use the actions provided below (removeFile etc).
-            // If legacy code uses setFiles, we might need a workaround or just pass the current files manually?
-            // Actually, we can just cheat and use state.files:
-            const newFiles = typeof value === 'function' ? (value as any)(state.files) : value;
-            dispatch({ type: 'SET_FILES', payload: newFiles });
-        } else {
-            dispatch({ type: 'SET_FILES', payload: value });
-        }
-    }, [state.files]);
+        const current = useBatchStore.getState().batch.files;
+        dispatch({ type: 'SET_FILES', payload: typeof value === 'function' ? value(current) : value });
+    }, [dispatch]);
 
     const setSettings = useCallback((value: React.SetStateAction<BatchSettings>) => {
-        if (typeof value === 'function') {
-            const newSettings = (value as any)(state.settings);
-            dispatch({ type: 'SET_SETTINGS', payload: newSettings });
-        } else {
-            dispatch({ type: 'SET_SETTINGS', payload: value });
-        }
-    }, [state.settings]);
+        const current = useBatchStore.getState().batch.settings;
+        dispatch({ type: 'SET_SETTINGS', payload: typeof value === 'function' ? value(current) : value });
+    }, [dispatch]);
 
     const setComparingFile = useCallback((file: FileItem | null) => {
         dispatch({ type: 'SET_COMPARING_FILE', payload: file });
@@ -169,22 +147,28 @@ export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // --- Business Logic Actions ---
 
     const handleFilesSelected = useCallback((input: FileList | File[] | string[]) => {
+        if (useBatchStore.getState().batch.status === 'PROCESSING') return Promise.resolve();
         return fileActions.handleFilesSelected(dispatch, input);
     }, []);
 
     const startProcessing = useCallback(() => {
-        return processingActions.startProcessing(dispatch, state.files, state.settings);
-    }, [state.files, state.settings]);
+        const current = useBatchStore.getState().batch;
+        if (current.status === 'PROCESSING') return Promise.resolve();
+        return processingActions.startProcessing(dispatch, current.files, current.settings);
+    }, [dispatch]);
 
     const triggerFileSelection = useCallback(() => {
-        return fileActions.triggerFileSelection(dispatch, t('common.selectFiles'));
+        if (useBatchStore.getState().batch.status === 'PROCESSING') return Promise.resolve();
+        return fileActions.triggerFileSelection(dispatch, t('common.selectImages'));
     }, [t]);
 
     const triggerZipSelection = useCallback(() => {
+        if (useBatchStore.getState().batch.status === 'PROCESSING') return Promise.resolve();
         return fileActions.triggerZipSelection(dispatch, t('common.selectZip'));
     }, [t]);
 
     const triggerFolderSelection = useCallback(() => {
+        if (useBatchStore.getState().batch.status === 'PROCESSING') return Promise.resolve();
         return fileActions.triggerFolderSelection(dispatch, t('common.selectFolder'));
     }, [t]);
 
@@ -197,12 +181,12 @@ export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, [state.isPaused]);
 
     const cancelProcessing = useCallback(() => {
-        return processingActions.cancelProcessing(dispatch, getDefaultSettings());
-    }, [getDefaultSettings]);
+        return processingActions.cancelProcessing(dispatch);
+    }, []);
 
     const resetBatch = useCallback(() => {
-        processingActions.resetBatch(dispatch, getDefaultSettings());
-    }, [getDefaultSettings]);
+        processingActions.resetBatch(dispatch, useBatchStore.getState().batch.settings);
+    }, []);
 
     const handleCompare = useCallback((file: FileItem) => {
         dispatch({ type: 'SET_COMPARING_FILE', payload: file });

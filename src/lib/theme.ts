@@ -11,52 +11,13 @@ interface SystemTheme {
 }
 
 export async function loadSystemTheme() {
+    if (!("__TAURI_INTERNALS__" in window)) return;
     try {
-        const theme = await invoke<SystemTheme>('get_system_theme');
+        await invoke<SystemTheme>('get_system_theme');
 
-        console.log('Loaded theme:', theme.name);
-
-        const root = document.documentElement;
-
-        root.style.setProperty('--sys-bg', theme.background);
-        root.style.setProperty('--sys-fg', theme.foreground);
-        root.style.setProperty('--sys-accent', theme.accent);
-        root.style.setProperty('--sys-surface', theme.surface);
-        root.style.setProperty('--sys-surface-variant', theme.surface_variant);
-        root.style.setProperty('--sys-border', theme.border);
-
-        root.style.setProperty('--background', theme.background);
-        root.style.setProperty('--text-main', theme.foreground);
-        root.style.setProperty('--primary-color', theme.accent);
-        root.style.setProperty('--surface', theme.surface);
-
-        applyDerivedColors(theme.foreground, theme.surface);
+        document.documentElement.style.colorScheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 
     } catch (error) {
         console.error('Failed to load system theme, using fallback:', error);
     }
-}
-
-function applyDerivedColors(fg: string, surface: string) {
-    const root = document.documentElement;
-
-    root.style.setProperty(
-        '--text-muted',
-        `color-mix(in srgb, ${fg}, transparent 45%)`
-    );
-
-    root.style.setProperty(
-        '--surface-hover',
-        `color-mix(in srgb, ${surface} 90%, ${fg} 10%)`
-    );
-
-    root.style.setProperty(
-        '--glass-background',
-        `color-mix(in srgb, ${surface}, transparent 40%)`
-    );
-
-    root.style.setProperty(
-        '--glass-border-color',
-        `color-mix(in srgb, ${fg}, transparent 90%)`
-    );
 }

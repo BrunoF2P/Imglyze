@@ -1,3 +1,8 @@
+import { useDialogFocus } from '../../../hooks/useDialogFocus';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { toast } from 'sonner';
+import { useBatchStore } from '../../../stores/batchStore';
+import { FileListPanel } from './FileListPanel';
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle2, XCircle, FileText, X, TrendingDown, Clock, Layers } from 'lucide-react';
@@ -19,8 +24,12 @@ export const ResultModal: React.FC<{ isOpen: boolean; onClose: () => void }> = (
         logs,
         handleCompare: onCompare
     } = useBatch();
-    const successCount = files.filter(f => f.status === 'Done').length;
-    const failedCount = files.filter(f => f.status === 'Error').length;
+    const { t } = useTranslation();
+    const dialog = useDialogFocus(isOpen, onClose);
+    const outputPath = useBatchStore(s => s.batch.outputPath);
+    const destination = outputPath ?? files.find(f => f.status === 'Done')?.optimizedPath;
+    const successCount = files.filter(f => f.selected && f.status === 'Done').length;
+    const failedCount = files.filter(f => f.selected && f.status === 'Error').length;
 
     const [view, setView] = useState<'summary' | 'logs' | 'files'>('summary');
     const stats = useResultStats(files, rawStats);
@@ -29,7 +38,7 @@ export const ResultModal: React.FC<{ isOpen: boolean; onClose: () => void }> = (
 
     return (
         <AnimatePresence>
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div ref={dialog} role="dialog" aria-modal="true" aria-label={t('results.title')} className="fixed inset-0 z-50 flex items-center justify-center p-4">
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -42,10 +51,11 @@ export const ResultModal: React.FC<{ isOpen: boolean; onClose: () => void }> = (
                     animate={{ scale: 1, opacity: 1, y: 0 }}
                     exit={{ scale: 0.98, opacity: 0, y: 10 }}
                     transition={{ type: 'spring', damping: 25, stiffness: 400 }}
-                    className={cn("relative w-full max-w-xl overflow-hidden shadow-lg", LAYOUT.surface, LAYOUT.largeBorderRadius, "border border-text-main/10")}
+                    className={cn("relative w-full max-w-3xl max-h-[90vh] overflow-auto shadow-lg", LAYOUT.surface, LAYOUT.largeBorderRadius, "border border-text-main/10")}
                 >
                     <button
                         onClick={onClose}
+                        aria-label={t('common.close')}
                         className="absolute top-6 right-6 p-2 rounded-full hover:bg-text-main/10 transition-colors z-10"
                     >
                         <X className="w-5 h-5 text-text-muted" />
@@ -65,6 +75,7 @@ export const ResultModal: React.FC<{ isOpen: boolean; onClose: () => void }> = (
 
                         {view === 'files' && <FilesView files={files} onCompare={onCompare} />}
 
+                        {destination && <button className="btn-secondary mb-5" onClick={() => revealItemInDir(destination).catch(error => toast.error(String(error)))}>{t('v1.openDestination')}</button>}
                         <ViewSwitcher view={view} setView={setView} onClose={onClose} />
                     </div>
                 </motion.div>
@@ -87,7 +98,7 @@ const SummaryView = ({ stats, rawStats, successCount, failedCount }: any) => {
                 >
                     <CheckCircle2 className="w-8 h-8 text-green-500" />
                 </motion.div>
-                <h2 className={cn(TYPOGRAPHY.heading, "mb-2 uppercase")}>{t('results.title')}</h2>
+                <h2 className={cn(TYPOGRAPHY.heading, "mb-2")}>{t('results.title')}</h2>
                 <p className="text-text-muted text-sm font-medium tracking-tight">{t('results.subtitle')}</p>
             </div>
 
@@ -106,9 +117,9 @@ const SummaryView = ({ stats, rawStats, successCount, failedCount }: any) => {
                     className={cn("flex flex-col justify-center items-center border border-text-main/5 relative overflow-hidden group", LAYOUT.glass, LAYOUT.borderRadius, LAYOUT.cardPadding)}
                 >
                     <TrendingDown className="w-8 h-8 text-primary mb-2 relative z-10" />
-                    <p className="text-4xl font-bold text-primary tracking-tight mb-0.5 relative z-10">-{stats.savedPercent}%</p>
+                    <p className="text-4xl font-bold text-primary tracking-tight mb-0.5 relative z-10">{stats.savedPercent < 0 ? "+" : "−"}{Math.abs(stats.savedPercent)}%</p>
                     <p className={cn(TYPOGRAPHY.compactLabel, "mb-1 relative z-10")}>{t('results.totalSaved')}</p>
-                    <p className="text-lg font-bold text-text-main relative z-10">{formatBytes(stats.totalSavedBytes, 1)}</p>
+                    <p className="text-lg font-bold text-text-main relative z-10">{formatBytes(Math.abs(stats.totalSavedBytes), 1)}</p>
                 </motion.div>
             </div>
         </>
@@ -129,44 +140,7 @@ const LogsView = ({ logs }: { logs: string[] }) => {
 };
 
 const FilesView = ({ files, onCompare }: { files: FileItem[]; onCompare: (f: FileItem) => void }) => {
-    const { t } = useTranslation();
-    return (
-        <div className="mb-8">
-            <h3 className={cn(TYPOGRAPHY.subHeading, "mb-4 flex items-center gap-2")}>
-                <Layers className="w-5 h-5 text-primary" />
-                {t('results.processedFiles')}
-            </h3>
-            <div className="bg-background/50 rounded-xl border border-text-main/5 overflow-hidden">
-                <div className="h-[250px] overflow-y-auto custom-scrollbar p-2 space-y-1">
-                    {files.filter(f => f.status === 'Done' || f.status === 'Error').map((file) => (
-                        <div key={file.id} className="flex items-center justify-between p-3 rounded-lg bg-text-main/[0.02] border border-transparent hover:border-text-main/5 transition-all group">
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                                <div className="w-8 h-8 rounded bg-text-main/5 flex items-center justify-center text-[8px] font-black uppercase text-text-muted">{file.format}</div>
-                                <div className="truncate">
-                                    <p className="text-[10px] font-bold uppercase truncate">{file.name}</p>
-                                    {file.status === 'Done' && (
-                                        <p className="text-[9px] font-medium text-text-muted">
-                                            {formatBytes(file.size, 0)} → <span className="text-primary">{file.optimizedSize ? formatBytes(file.optimizedSize, 0) : '0 B'}</span>
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
-                            {file.status === 'Done' ? (
-                                <button
-                                    onClick={() => onCompare(file)}
-                                    className="px-3 py-1.5 bg-primary/10 text-primary rounded-lg text-[9px] font-bold uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-all hover:bg-primary/20"
-                                >
-                                    {t('results.compare')}
-                                </button>
-                            ) : (
-                                <XCircle className="w-4 h-4 text-red-400/50" />
-                            )}
-                        </div>
-                    ))}
-                </div>
-            </div>
-        </div>
-    );
+    return <div className="mb-6"><FileListPanel files={files.filter(f => f.selected && f.status === 'Done' || f.status === 'Error')} onCompare={onCompare} /></div>;
 };
 
 const ViewSwitcher = ({ view, setView, onClose }: any) => {
@@ -191,7 +165,7 @@ const ViewSwitcher = ({ view, setView, onClose }: any) => {
                 icon={FileText}
                 label={t('results.logs')}
             />
-            <button onClick={onClose} className="p-3 bg-text-main/5 border border-text-main/5 rounded-xl font-bold uppercase tracking-wider text-[9px] text-text-main hover:bg-text-main/10 transition-all">
+            <button onClick={onClose} className="p-3 bg-text-main/5 border border-text-main/5 rounded-xl font-medium text-xs text-text-main hover:bg-text-main/10 transition-all">
                 {t('common.close')}
             </button>
         </div>
@@ -202,7 +176,7 @@ const NavButton = ({ active, onClick, icon: Icon, label }: any) => (
     <button
         onClick={onClick}
         className={cn(
-            "flex items-center justify-center gap-2 p-3 rounded-xl border font-bold uppercase tracking-wider text-[9px] transition-all",
+            "flex items-center justify-center gap-2 p-3 rounded-xl border font-medium text-xs transition-all",
             active ? "bg-primary/10 border-primary/20 text-primary" : "bg-text-main/5 border-text-main/5 text-text-muted hover:bg-text-main/10"
         )}
     >

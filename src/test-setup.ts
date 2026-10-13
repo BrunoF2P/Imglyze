@@ -17,10 +17,24 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
     save: vi.fn(),
 }));
 
-vi.mock('@tauri-apps/plugin-store', () => ({
-    Store: vi.fn(() => ({
+vi.mock('@tauri-apps/plugin-store', () => {
+    const mockStoreInstance = {
         get: vi.fn(),
         set: vi.fn(),
         save: vi.fn(),
-    })),
-}));
+        init: vi.fn(),
+        delete: vi.fn(),
+        clear: vi.fn(),
+        reset: vi.fn(),
+        keys: vi.fn(),
+        values: vi.fn(),
+        entries: vi.fn(),
+        length: vi.fn(),
+        load: vi.fn(),
+    };
+    return {
+        Store: vi.fn(function () { return mockStoreInstance; }),
+        LazyStore: vi.fn(function () { return mockStoreInstance; }),
+        load: vi.fn().mockResolvedValue(mockStoreInstance),
+    };
+});

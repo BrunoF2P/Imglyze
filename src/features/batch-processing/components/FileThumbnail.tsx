@@ -1,4 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { ImageOff, Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { usePreview } from '../../../contexts/PreviewContext';
 
 interface FileThumbnailProps {
@@ -18,10 +20,14 @@ export const FileThumbnail: React.FC<FileThumbnailProps> = ({
     onMouseEnter,
     onMouseLeave
 }) => {
-    const { thumbnails, generatePreview, revokeThumbnail } = usePreview();
+    const { thumbnails, failures, generatePreview, revokeThumbnail } = usePreview();
+    const { t } = useTranslation();
+    const [imageFailed, setImageFailed] = useState(false);
     const thumbnailSrc = thumbnails[id];
+    const failed = failures[id] || imageFailed;
 
     useEffect(() => {
+        setImageFailed(false);
         if (thumbnailSrc) {
             revokeThumbnail(id);
         }
@@ -40,19 +46,21 @@ export const FileThumbnail: React.FC<FileThumbnailProps> = ({
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
         >
-            {thumbnailSrc ? (
+            {failed ? (
+                <div className="w-full h-full flex items-center justify-center text-text-muted" title={t('v1.imageLoadError')}>
+                    <ImageOff size={18} aria-label={t('v1.imageLoadError')} />
+                </div>
+            ) : thumbnailSrc ? (
                 <img
                     src={thumbnailSrc}
-                    alt={`Preview of ${name}`}
+                    alt={name}
                     className="w-full h-full object-cover animate-in fade-in duration-300"
                     loading="lazy"
-                    onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                    }}
+                    onError={() => setImageFailed(true)}
                 />
             ) : (
-                <div className="w-full h-full bg-surface/50 animate-pulse flex items-center justify-center">
-                    <span className="text-xs text-muted-foreground">Loading...</span>
+                <div className="w-full h-full bg-surface/50 flex items-center justify-center text-text-muted">
+                    <Loader2 size={16} className="animate-spin" aria-label={t('v1.loadingImages')} />
                 </div>
             )}
         </div>

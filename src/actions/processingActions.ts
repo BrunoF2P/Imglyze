@@ -1,3 +1,7 @@
+import { toast } from 'sonner';
+import i18n from '../i18n/config';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isPermissionGranted, sendNotification } from '@tauri-apps/plugin-notification';
 import { Dispatch } from 'react';
 import { message } from '@tauri-apps/plugin-dialog';
 import { BatchAction } from './types';
@@ -35,18 +39,33 @@ export const startProcessing = async (
         return;
     }
 
+    dispatch({ type: 'SET_FILES', payload: files.map(file => file.selected ? { ...file, status: 'Pending', optimizedSize: undefined, optimizedPath: undefined, error: undefined, fidelity: undefined } : file) });
+    dispatch({ type: 'SET_OUTPUT_PATH', payload: undefined });
     dispatch({ type: 'SET_STATUS', payload: 'PROCESSING' });
     dispatch({ type: 'SET_PAUSED', payload: false });
     dispatch({ type: 'SET_TIMING', payload: { startTime: Date.now() } });
 
     try {
-        await batchProcessingService.startBatch(files, settings);
+        const outcome = await batchProcessingService.startBatch(files, settings);
+        if (outcome.cancelled) {
+            dispatch({ type: 'SET_STATUS', payload: 'ANALYSIS' });
+            dispatch({ type: 'SET_PAUSED', payload: false });
+            dispatch({ type: 'SET_TIMING', payload: { endTime: Date.now() } });
+            toast.info(i18n.t('v1.batchCancelled'));
+            return;
+        }
+        if (outcome.outputPath) dispatch({ type: 'SET_OUTPUT_PATH', payload: outcome.outputPath });
+        (outcome.errors ? toast.warning : toast.success)(i18n.t('v1.batchSummary', { successes: outcome.successes, errors: outcome.errors }));
+        try {
+            if (await isPermissionGranted() && !await getCurrentWindow().isFocused()) sendNotification({ title: 'Imglyze', body: i18n.t('v1.batchSummary', { successes: outcome.successes, errors: outcome.errors }) });
+        } catch { /* Completion remains available in the app. */ }
         dispatch({ type: 'SET_TIMING', payload: { endTime: Date.now() } });
         dispatch({ type: 'SET_STATUS', payload: 'COMPLETED' });
     } catch (error) {
         console.error(error);
         const errorMsg = error instanceof Error ? error.message : String(error);
         await message(`Processing Failed: ${errorMsg}`, { title: 'Error', kind: 'error' });
+        dispatch({ type: 'SET_PAUSED', payload: false });
         dispatch({ type: 'SET_STATUS', payload: 'ANALYSIS' });
     }
 };
@@ -56,21 +75,19 @@ export const togglePause = async (
     isPaused: boolean
 ) => {
     const next = !isPaused;
-    dispatch({ type: 'SET_PAUSED', payload: next });
-
     if (next) {
         await batchProcessingService.pauseBatch();
     } else {
         await batchProcessingService.resumeBatch();
     }
+    dispatch({ type: 'SET_PAUSED', payload: next });
 };
 
 export const cancelProcessing = async (
-    dispatch: Dispatch<BatchAction>,
-    defaultSettings: BatchSettings
+    dispatch: Dispatch<BatchAction>
 ) => {
     await batchProcessingService.cancelBatch();
-    dispatch({ type: 'RESET_BATCH', payload: defaultSettings });
+    dispatch({ type: 'SET_PAUSED', payload: false });
 };
 
 export const resetBatch = (

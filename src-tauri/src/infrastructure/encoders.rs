@@ -19,17 +19,16 @@ pub fn encode_png(img: &DynamicImage, optimize: bool) -> Result<Vec<u8>, String>
 
         tracing::debug!(
             size_mb = format!("{:.1}", size_mb),
-            "Optimizing PNG with oxipng (parallel + max compression)"
+            "Optimizing PNG with oxipng"
         );
 
-        // Preset 6 (maximum compression) with parallel + zopfli enabled
-        // Parallel processing makes maximum compression feasible
         let mut options = oxipng::Options::from_preset(4);
         options.strip = oxipng::StripChunks::Safe;
 
         match oxipng::optimize_from_memory(&buf, &options) {
             Ok(optimized) => {
-                let reduction = ((buf.len() - optimized.len()) as f64 / buf.len() as f64) * 100.0;
+                let reduction =
+                    ((buf.len() as f64 - optimized.len() as f64) / buf.len() as f64) * 100.0;
                 tracing::info!(
                     original_size = buf.len(),
                     optimized_size = optimized.len(),
@@ -99,8 +98,31 @@ pub fn encode_webp(img: &DynamicImage, quality: f32) -> Result<Vec<u8>, String> 
         tracing::error!(error = ?e, "WebP encoder error");
         format!("WebP encoder error: {:?}", e)
     })?;
-    let memory = encoder.encode(quality);
+    let memory = if quality >= 100.0 {
+        encoder.encode_lossless()
+    } else {
+        encoder.encode(quality)
+    };
     Ok(memory.to_vec())
+}
+
+pub fn encode_avif(img: &DynamicImage, quality: f32) -> Result<Vec<u8>, String> {
+    let rgba = img.to_rgba8();
+    let pixels: Vec<ravif::RGBA8> = rgba
+        .pixels()
+        .map(|p| ravif::RGBA8::new(p[0], p[1], p[2], p[3]))
+        .collect();
+    ravif::Encoder::new()
+        .with_quality(quality.clamp(1.0, 100.0))
+        .with_speed(7)
+        .with_num_threads(Some(1))
+        .encode_rgba(ravif::Img::new(
+            &pixels,
+            rgba.width() as usize,
+            rgba.height() as usize,
+        ))
+        .map(|result| result.avif_file)
+        .map_err(|e| format!("AVIF encoding failed: {e}"))
 }
 
 /// Encode image to BMP format
@@ -140,7 +162,7 @@ pub fn quantize_png_with_quality(
 
     // Convert raw u8 pixels to imagequant RGBA structs
     let mut image_data = Vec::with_capacity(width * height);
-    for chunk in pixels.chunks_exact(4) {
+    for chunk in pixels.as_chunks::<4>().0 {
         image_data.push(imagequant::RGBA::new(
             chunk[0], chunk[1], chunk[2], chunk[3],
         ));
@@ -218,6 +240,7 @@ pub fn encode_image(
         }
         "jpg" | "jpeg" => encode_jpeg(img, quality as u8),
         "webp" => encode_webp(img, quality),
+        "avif" => encode_avif(img, quality),
         "bmp" => encode_bmp(img),
         _ => Err(format!("Unsupported format: {}", format)),
     }

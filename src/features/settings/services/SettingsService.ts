@@ -1,5 +1,6 @@
 import { BatchSettings, ImageFormat, AdvancedSettings } from '../../../types';
 import { LazyStore } from '@tauri-apps/plugin-store';
+import { validateSettings as validateSchema } from '../../../schemas/settingsSchema';
 import { logger } from '../../../lib/logger';
 
 const STORE_FILENAME = 'settings.json';
@@ -23,32 +24,40 @@ export const PRESETS: Record<PresetId, Record<ImageFormat, AdvancedSettings>> = 
         JPG: { targetFormat: 'Original', quality: 80, keepMetadata: false },
         PNG: { targetFormat: 'Original', quality: 90, keepMetadata: false },
         WebP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
-        BMP: { targetFormat: 'Original', quality: 80, keepMetadata: false }
+        BMP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
+        AVIF: { targetFormat: 'Original', quality: 80, keepMetadata: false },
+        SVG: { targetFormat: 'PNG', quality: 100, keepMetadata: false }
     },
     [PresetId.HIGH_QUALITY]: {
         JPG: { targetFormat: 'Original', quality: 95, keepMetadata: false },
         PNG: { targetFormat: 'Original', quality: 98, keepMetadata: false },
         WebP: { targetFormat: 'Original', quality: 95, keepMetadata: false },
-        BMP: { targetFormat: 'Original', quality: 95, keepMetadata: false }
+        BMP: { targetFormat: 'Original', quality: 95, keepMetadata: false },
+        AVIF: { targetFormat: 'Original', quality: 95, keepMetadata: false },
+        SVG: { targetFormat: 'PNG', quality: 100, keepMetadata: false }
     },
     [PresetId.LOSSLESS]: {
         JPG: { targetFormat: 'Original', quality: 100, keepMetadata: false },
         PNG: { targetFormat: 'Original', quality: 100, keepMetadata: false },
         WebP: { targetFormat: 'Original', quality: 100, keepMetadata: false },
-        BMP: { targetFormat: 'Original', quality: 100, keepMetadata: false }
+        BMP: { targetFormat: 'Original', quality: 100, keepMetadata: false },
+        AVIF: { targetFormat: 'Original', quality: 100, keepMetadata: false },
+        SVG: { targetFormat: 'PNG', quality: 100, keepMetadata: false }
     },
     [PresetId.CUSTOM]: {
         JPG: { targetFormat: 'Original', quality: 80, keepMetadata: false },
         PNG: { targetFormat: 'Original', quality: 90, keepMetadata: false },
         WebP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
-        BMP: { targetFormat: 'Original', quality: 80, keepMetadata: false }
+        BMP: { targetFormat: 'Original', quality: 80, keepMetadata: false },
+        AVIF: { targetFormat: 'Original', quality: 80, keepMetadata: false },
+        SVG: { targetFormat: 'PNG', quality: 100, keepMetadata: false }
     }
 };
 
 /**
  * Valid image formats
  */
-const VALID_FORMATS: ImageFormat[] = ['JPG', 'PNG', 'WebP', 'BMP'];
+const VALID_FORMATS: ImageFormat[] = ['JPG', 'PNG', 'WebP', 'BMP', 'AVIF', 'SVG'];
 
 export class SettingsService {
     private store: LazyStore;
@@ -62,9 +71,11 @@ export class SettingsService {
      */
     getDefaultSettings(): BatchSettings {
         return {
+            resize: { mode: 'Original', width: 1920, height: 1920, percent: 100, filter: 'Lanczos3' },
+            measureQuality: false,
             globalPreset: PresetId.BALANCED,
             advancedMode: false,
-            formatPresets: PRESETS[PresetId.BALANCED],
+            formatPresets: structuredClone(PRESETS[PresetId.BALANCED]),
             outputMode: 'Folder',
             outputZipName: 'images_optimized.zip'
         };
@@ -78,7 +89,7 @@ export class SettingsService {
 
         if (!preset) {
             logger.warn('Unknown preset ID, using balanced', { presetId });
-            return PRESETS[PresetId.BALANCED];
+            return structuredClone(PRESETS[PresetId.BALANCED]);
         }
 
         return JSON.parse(JSON.stringify(preset));
@@ -115,7 +126,8 @@ export class SettingsService {
             if (
                 s1.quality !== s2.quality ||
                 s1.targetFormat !== s2.targetFormat ||
-                s1.keepMetadata !== s2.keepMetadata
+                s1.keepMetadata !== s2.keepMetadata ||
+                s1.maxFileSize !== s2.maxFileSize
             ) {
                 return false;
             }
@@ -128,31 +140,8 @@ export class SettingsService {
      * Validate settings structure
      */
     private validateSettings(settings: any): settings is BatchSettings {
-        if (!settings || typeof settings !== 'object') return false;
+        return validateSchema(settings).success;
 
-        // Valida campos obrigatórios
-        if (
-            !settings.globalPreset ||
-            typeof settings.advancedMode !== 'boolean' ||
-            !settings.formatPresets ||
-            !settings.outputMode
-        ) {
-            return false;
-        }
-
-        // Valida formatPresets
-        for (const format of VALID_FORMATS) {
-            const preset = settings.formatPresets[format];
-            if (
-                !preset ||
-                typeof preset.quality !== 'number' ||
-                !preset.targetFormat
-            ) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     /**
@@ -164,6 +153,10 @@ export class SettingsService {
 
             if (saved) {
                 saved.globalPreset = this.migratePreset(saved.globalPreset);
+                const defaults = this.getDefaultSettings();
+                saved.resize ??= defaults.resize;
+                saved.measureQuality ??= false;
+                saved.formatPresets = { ...defaults.formatPresets, ...saved.formatPresets };
 
                 if (this.validateSettings(saved)) {
                     return saved;
@@ -245,6 +238,27 @@ export class SettingsService {
         const defaults = this.getDefaultSettings();
         await this.saveSettings(defaults);
         return defaults;
+    }
+
+    async loadPresets(): Promise<Record<string, BatchSettings>> {
+        const saved = await this.store.get<Record<string, BatchSettings>>('named_presets') ?? {};
+        return Object.fromEntries(Object.entries(saved).filter(([, value]) => this.validateSettings(value)));
+    }
+
+    async savePreset(name: string, settings: BatchSettings): Promise<Record<string, BatchSettings>> {
+        if (!name.trim() || name.trim().length > 80 || !this.validateSettings(settings)) throw new Error('Invalid preset');
+        const presets = { ...await this.loadPresets(), [name.trim()]: structuredClone(settings) };
+        await this.store.set('named_presets', presets);
+        await this.store.save();
+        return presets;
+    }
+
+    async deletePreset(name: string): Promise<Record<string, BatchSettings>> {
+        const presets = await this.loadPresets();
+        delete presets[name];
+        await this.store.set('named_presets', presets);
+        await this.store.save();
+        return presets;
     }
 
     /**

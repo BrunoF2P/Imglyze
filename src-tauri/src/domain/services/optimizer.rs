@@ -30,7 +30,8 @@ pub fn find_best_quality(
             "png" => encoders::quantize_png_with_quality(original_img, q, optimize),
             "jpg" | "jpeg" => encoders::encode_jpeg(original_img, q),
             "webp" => encoders::encode_webp(original_img, q as f32),
-            _ => Ok(vec![]),
+            "avif" => encoders::encode_avif(original_img, q as f32),
+            _ => Err(format!("Size targeting is unsupported for {target_ext}")),
         }
     };
 

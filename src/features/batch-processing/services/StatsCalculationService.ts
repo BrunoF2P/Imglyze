@@ -24,7 +24,7 @@ export class StatsCalculationService {
             JPG: 0,
             PNG: 0,
             WebP: 0,
-            BMP: 0
+            BMP: 0, AVIF: 0, SVG: 0
         };
 
         let totalSize = 0;
@@ -45,7 +45,7 @@ export class StatsCalculationService {
         });
 
         return {
-            totalFiles: files.length,
+            totalFiles: selectedFiles.length,
             totalSize,
             optimizedSize,
             formatBreakdown: breakdown,
@@ -89,21 +89,16 @@ export class StatsCalculationService {
         let originalSizeProcessed = 0;
 
         files.forEach(f => {
-            if (f?.status === 'Done') {
+            if (f?.selected && f.status === 'Done') {
                 const originalSize = f.size || 0;
-                const optimized = f.optimizedSize || 0;
-
-                if (optimized > 0 && optimized < originalSize) {
-                    totalSavedBytes += (originalSize - optimized);
-                    originalSizeProcessed += originalSize;
-                } else if (optimized === 0) {
-                    originalSizeProcessed += originalSize;
-                }
+                if (f.optimizedSize == null) return;
+                totalSavedBytes += originalSize - f.optimizedSize;
+                originalSizeProcessed += originalSize;
             }
         });
 
         let savedPercent = 0;
-        if (originalSizeProcessed > 0 && totalSavedBytes >= 0) {
+        if (originalSizeProcessed > 0) {
             savedPercent = Math.min(
                 100,
                 Math.round((totalSavedBytes / originalSizeProcessed) * 100)
@@ -111,7 +106,7 @@ export class StatsCalculationService {
         }
 
         return {
-            totalSavedBytes: Math.max(0, totalSavedBytes),
+            totalSavedBytes,
             savedPercent,
             originalSizeProcessed
         };
@@ -184,7 +179,7 @@ export class StatsCalculationService {
                 JPG: 0,
                 PNG: 0,
                 WebP: 0,
-                BMP: 0
+                BMP: 0, AVIF: 0, SVG: 0
             },
             startTime: timing.startTime,
             endTime: timing.endTime

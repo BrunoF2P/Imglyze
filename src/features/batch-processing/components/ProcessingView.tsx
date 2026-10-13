@@ -1,12 +1,12 @@
 import React from 'react';
-import { Loader2, Clock, AlertCircle, Pause, Play, XCircle, CheckCircle2 } from 'lucide-react';
-import { ProcessStatus } from '../../../types';
+import { Loader2, Clock, Pause, Play, XCircle } from 'lucide-react';
+import { FileListPanel } from './FileListPanel';
 import { cn } from '../../../lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useBatch } from '../../../contexts/BatchContext';
-import { TYPOGRAPHY, LAYOUT } from '../../../lib/constants';
+import { TYPOGRAPHY } from '../../../lib/constants';
 
 export const ProcessingView: React.FC = () => {
     const {
@@ -40,7 +40,7 @@ export const ProcessingView: React.FC = () => {
 
     const startTime = stats.startTime || now;
     const elapsedSeconds = (now - startTime) / 1000;
-    const processedCount = files.filter(f => f.status === 'Done' || f.status === 'Error').length;
+    const processedCount = files.filter(f => f.selected && (f.status === 'Done' || f.status === 'Error')).length;
     const totalSelected = files.filter(f => f.selected).length;
 
     return (
@@ -76,96 +76,14 @@ export const ProcessingView: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="relative">
-                    <div className="w-full h-4 bg-text-main/5 rounded-full overflow-hidden border border-text-main/5 p-1">
-                        <motion.div
-                            className="h-full bg-primary rounded-full relative overflow-hidden"
-                            initial={{ width: 0 }}
-                            animate={{ width: `${overallProgress}%` }}
-                            transition={{ type: 'spring', bounce: 0, duration: 1 }}
-                        />
+                <div>
+                    <div className="w-full h-2 bg-text-main/10 rounded-full overflow-hidden" role="progressbar" aria-label={t('processing.working')} aria-valuenow={Math.round(overallProgress)} aria-valuemin={0} aria-valuemax={100}>
+                        <motion.div className="h-full bg-primary" animate={{ width: `${overallProgress}%` }} />
                     </div>
-                    <div className={cn(TYPOGRAPHY.compactLabel, "flex justify-between mt-2")}>
-                        <span>{t('processing.filesProcessed', { count: processedCount, total: totalSelected })}</span>
-                        <span className="text-primary">{overallProgress.toFixed(1)}%</span>
-                    </div>
+                    <p className="text-sm text-text-muted mt-3">{processedCount} / {totalSelected} · {Math.round(overallProgress)}%</p>
                 </div>
             </div>
-
-            <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className={cn(LAYOUT.glass, LAYOUT.largeBorderRadius, "flex flex-col flex-1 min-h-[400px] overflow-hidden")}
-            >
-                <div className={cn(TYPOGRAPHY.compactLabel, "p-4 border-b border-text-main/5 flex items-center bg-text-main/[0.02]")}>
-                    <div className="w-12"></div>
-                    <div className="flex-1">{t('processing.filename')}</div>
-                    <div className="w-24 text-right">{t('processing.original')}</div>
-                    <div className="w-24 text-right">{t('processing.optimized')}</div>
-                    <div className="w-24 text-right">{t('processing.reduction')}</div>
-                    <div className="w-36 text-center">{t('processing.status')}</div>
-                </div>
-                <div className="overflow-y-auto flex-1 custom-scrollbar">
-                    <AnimatePresence initial={false} mode="popLayout">
-                        {files.map((file) => (
-                            <motion.div
-                                layout
-                                key={file.id}
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                onClick={file.status === 'Done' ? () => onCompare(file) : undefined}
-                                className={cn(
-                                    "flex items-center p-4 border-b border-text-main/5 hover:bg-text-main/[0.03] transition-colors group",
-                                    file.status === 'Done' && "cursor-pointer"
-                                )}
-                            >
-                                <div className="w-12 flex justify-center">
-                                    <span className="px-2 py-0.5 rounded-md bg-text-main/5 text-[9px] font-bold border border-text-main/5 group-hover:bg-primary/10 group-hover:text-primary transition-colors">{file.format}</span>
-                                </div>
-                                <div className="flex-1 min-w-0 pr-4">
-                                    <p className="text-[11px] font-bold truncate tracking-tight uppercase">{file.name}</p>
-                                </div>
-                                <div className="w-24 text-right text-[10px] font-medium text-text-muted">
-                                    {(file.size / 1024).toFixed(0)} KB
-                                </div>
-                                <div className="w-24 text-right text-[11px] font-bold">
-                                    {file.optimizedSize ? `${(file.optimizedSize / 1024).toFixed(0)} KB` : <span className="text-text-muted opacity-20">--</span>}
-                                </div>
-                                <div className="w-24 text-right">
-                                    {file.optimizedSize && (
-                                        <motion.span
-                                            initial={{ scale: 0.8, opacity: 0 }}
-                                            animate={{ scale: 1, opacity: 1 }}
-                                            className="text-[9px] font-bold text-green-400 bg-green-400/10 px-2 py-0.5 rounded border border-green-400/10"
-                                        >
-                                            -{Math.round((1 - file.optimizedSize / file.size) * 100)}%
-                                        </motion.span>
-                                    )}
-                                </div>
-                                <div className="w-36 flex justify-center">
-                                    <StatusBadge status={file.status} />
-                                </div>
-                            </motion.div>
-                        ))}
-                    </AnimatePresence>
-                </div>
-            </motion.div>
-        </div >
+            <FileListPanel files={files} onCompare={onCompare} />
+        </div>
     );
 };
-
-const StatusBadge = ({ status }: { status: ProcessStatus }) => {
-    const { t } = useTranslation();
-    switch (status) {
-        case 'Done':
-            return <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-wider text-green-400 bg-green-400/5 px-3 py-1 rounded-full border border-green-400/10"><CheckCircle2 className="w-3 h-3" /> {t('common.done')}</motion.span>;
-        case 'Error':
-            return <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-wider text-red-400 bg-red-400/5 px-3 py-1 rounded-full border border-red-400/10"><AlertCircle className="w-3 h-3" /> {t('common.error')}</motion.span>;
-        case 'Processing':
-            return <span className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-wider text-primary bg-primary/5 px-3 py-1 rounded-full border border-primary/10"><Loader2 className="w-3 h-3 animate-spin" /> {t('common.working')}</span>;
-        default:
-            return <span className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-wider text-text-muted bg-text-main/5 px-3 py-1 rounded-full border border-text-main/5"><Pause className="w-3 h-3" /> {t('common.pending')}</span>;
-    }
-}

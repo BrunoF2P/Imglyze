@@ -1,14 +1,15 @@
 use crate::domain::models::{AppState, ImageFormat, ProcessStatus};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::Path;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use uuid::Uuid;
 use walkdir::WalkDir;
 use zip::ZipArchive;
 
 const MAX_ZIP_FILES: usize = 1000;
+const MAX_EXTRACT_TOTAL_SIZE: u64 = 512 * 1024 * 1024;
 const MAX_EXTRACT_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100MB
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -27,6 +28,12 @@ pub struct FileItem {
     #[serde(default)]
     pub error: Option<String>,
     pub selected: bool,
+    #[serde(default)]
+    pub fidelity: Option<f64>,
+    #[serde(default)]
+    pub relative_path: Option<String>,
+    #[serde(default)]
+    pub original_preview: Option<String>,
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +52,12 @@ pub fn get_format(path: &Path) -> Option<ImageFormat> {
         "png" => Some(ImageFormat::PNG),
         "webp" => Some(ImageFormat::WebP),
         "bmp" => Some(ImageFormat::BMP),
+        "avif" => Some(ImageFormat::AVIF),
+        "svg" => {
+            return crate::infrastructure::imaging::load_image(path)
+                .ok()
+                .map(|_| ImageFormat::SVG)
+        }
         _ => None,
     };
 
@@ -80,6 +93,10 @@ pub fn get_format(path: &Path) -> Option<ImageFormat> {
         return Some(ImageFormat::WebP);
     }
 
+    if &buffer[4..8] == b"ftyp" && (&buffer[8..12] == b"avif" || &buffer[8..12] == b"avis") {
+        return Some(ImageFormat::AVIF);
+    }
+
     // If Magic Number doesn't match a known format, return None (Invalid File)
     // even if extension was correct.
     None
@@ -104,13 +121,16 @@ pub fn create_file_item(path: &Path) -> Option<FileItem> {
         optimized_path: None,
         error: None,
         selected: true,
+        fidelity: None,
+        relative_path: None,
+        original_preview: None,
     })
 }
 
 fn process_path(
     path: &Path,
     app: &tauri::AppHandle,
-    state: &tauri::State<'_, AppState>,
+    state: &AppState,
     result: &mut DiscoveryResult,
 ) {
     let ext = path
@@ -122,6 +142,10 @@ fn process_path(
     if ext == "zip" {
         handle_zip(path, app, state, result);
     } else if let Some(item) = create_file_item(path) {
+        if let Err(error) = app.asset_protocol_scope().allow_file(path) {
+            result.errors.push(error.to_string());
+            return;
+        }
         result.items.push(item);
     } else {
         // Log skipped files that are not common system files to avoid noise
@@ -141,7 +165,7 @@ fn process_path(
 fn handle_zip(
     zip_path: &Path,
     app: &tauri::AppHandle,
-    state: &tauri::State<'_, AppState>,
+    state: &AppState,
     result: &mut DiscoveryResult,
 ) {
     let zip_file = match fs::File::open(zip_path) {
@@ -199,6 +223,7 @@ fn handle_zip(
 
     // Adaptive progress emission
     let emit_frequency = (archive.len() / 20).max(10);
+    let mut extracted_bytes = 0u64;
     for i in 0..archive.len() {
         // Emit progress periodically
         if i % emit_frequency == 0 || i == archive.len() - 1 {
@@ -215,6 +240,12 @@ fn handle_zip(
             }
         };
 
+        if extracted_bytes.saturating_add(file.size()) > MAX_EXTRACT_TOTAL_SIZE {
+            result
+                .errors
+                .push("ZIP extraction exceeds the 512 MiB total limit".into());
+            break;
+        }
         if file.size() > MAX_EXTRACT_FILE_SIZE {
             result.errors.push(format!(
                 "File {:?} in ZIP ignored: exceeds {}MB.",
@@ -238,7 +269,7 @@ fn handle_zip(
             None => continue,
         };
 
-        if file.name().ends_with('/') {
+        if file.is_dir() {
             let _ = fs::create_dir_all(&outpath);
         } else {
             if let Some(p) = outpath.parent() {
@@ -247,7 +278,11 @@ fn handle_zip(
                 }
             }
 
-            let mut outfile = match fs::File::create(&outpath) {
+            let mut outfile = match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&outpath)
+            {
                 Ok(f) => f,
                 Err(e) => {
                     result.errors.push(format!(
@@ -258,14 +293,33 @@ fn handle_zip(
                 }
             };
 
-            if let Err(e) = io::copy(&mut file, &mut outfile) {
+            let expected = file.size();
+            let copied = io::copy(
+                &mut file.by_ref().take(expected.saturating_add(1)),
+                &mut outfile,
+            );
+            if let Err(e) = copied {
                 result
                     .errors
                     .push(format!("Error extracting file {:?}: {}", outpath, e));
                 continue;
             }
 
+            if copied.unwrap_or(0) != expected {
+                let _ = fs::remove_file(&outpath);
+                result
+                    .errors
+                    .push("ZIP entry size does not match its header".into());
+                continue;
+            }
+            extracted_bytes += expected;
+
             if let Some(item) = create_file_item(&outpath) {
+                let mut item = item;
+                item.relative_path = outpath
+                    .strip_prefix(&extract_dir)
+                    .ok()
+                    .map(|p| p.to_string_lossy().to_string());
                 result.items.push(item);
             }
         }
@@ -283,28 +337,46 @@ pub async fn discover_files(
     state: tauri::State<'_, AppState>,
     paths: Vec<String>,
 ) -> Result<DiscoveryResult, String> {
-    let msg = format!("Starting discovery on {} paths...", paths.len());
-    let _ = app.emit("log", &msg);
+    if state.batch_active.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("Cannot import files while processing".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let msg = format!("Starting discovery on {} paths...", paths.len());
+        let _ = app.emit("log", &msg);
 
-    let mut result = DiscoveryResult {
-        items: Vec::new(),
-        errors: Vec::new(),
-    };
+        let mut result = DiscoveryResult {
+            items: Vec::new(),
+            errors: Vec::new(),
+        };
 
-    for path_str in paths {
-        let path = Path::new(&path_str);
-        if path.is_file() {
-            process_path(path, &app, &state, &mut result);
-        } else if path.is_dir() {
-            for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
-                if entry.path().is_file() {
-                    process_path(entry.path(), &app, &state, &mut result);
+        for path_str in paths {
+            let path = Path::new(&path_str);
+            if path.is_file() {
+                process_path(path, &app, &state, &mut result);
+            } else if path.is_dir() {
+                for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
+                    if entry.path().is_file() {
+                        let before = result.items.len();
+                        process_path(entry.path(), &app, &state, &mut result);
+                        for item in &mut result.items[before..] {
+                            if item.relative_path.is_none() {
+                                item.relative_path = entry
+                                    .path()
+                                    .strip_prefix(path)
+                                    .ok()
+                                    .map(|p| p.to_string_lossy().to_string());
+                            }
+                        }
+                    }
                 }
             }
         }
-    }
 
-    let msg_done = format!("Discovery complete: {} files found.", result.items.len());
-    let _ = app.emit("log", msg_done);
-    Ok(result)
+        let msg_done = format!("Discovery complete: {} files found.", result.items.len());
+        let _ = app.emit("log", msg_done);
+        Ok(result)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

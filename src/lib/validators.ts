@@ -18,10 +18,10 @@ export const validateBatchSettings = (settings: BatchSettings): ValidationResult
 
     // Check Quality Values in Presets
     for (const [format, config] of Object.entries(settings.formatPresets)) {
-        if (config.quality < 0 || config.quality > 100) {
-            return { isValid: false, error: `Invalid quality for ${format}: must be between 0 and 100.` };
+        if (!Number.isFinite(config.quality) || config.quality < 1 || config.quality > 100) {
+            return { isValid: false, error: `Invalid quality for ${format}: must be between 1 and 100.` };
         }
-        if (config.maxFileSize !== undefined && config.maxFileSize <= 0) {
+        if (config.maxFileSize != null && config.maxFileSize <= 0) {
             return { isValid: false, error: `Invalid max file size for ${format}: must be greater than 0.` };
         }
     }

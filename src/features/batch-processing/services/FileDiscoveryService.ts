@@ -50,7 +50,7 @@ export class FileDiscoveryService {
                 title: translatedLabel,
                 filters: [{
                     name: 'Images',
-                    extensions: ['jpg', 'jpeg', 'png', 'webp', 'bmp']
+                    extensions: ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'avif', 'svg']
                 }]
             });
 

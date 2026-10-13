@@ -54,7 +54,14 @@ pub fn get_target_path(
 
     match settings.output_mode {
         OutputMode::ZIP | OutputMode::Folder => {
-            output_dir.join(format!("{}.{}", file_stem, target_ext))
+            let relative = item.relative_path.as_deref().map(Path::new);
+            let parent = relative.and_then(Path::parent).filter(|p| {
+                p.components()
+                    .all(|c| matches!(c, std::path::Component::Normal(_)))
+            });
+            output_dir
+                .join(parent.unwrap_or(Path::new("")))
+                .join(format!("{}.{}", file_stem, target_ext))
         }
         OutputMode::Replace => PathBuf::from(&item.path).with_extension(target_ext),
         OutputMode::Suffix => {

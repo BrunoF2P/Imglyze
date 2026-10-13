@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 
 interface PreviewContextType {
     thumbnails: Record<string, string>;
+    failures: Record<string, boolean>;
     generatePreview: (id: string, path: string) => void;
     revokeThumbnail: (id: string) => void;
 }
@@ -11,8 +12,10 @@ const PreviewContext = createContext<PreviewContextType | null>(null);
 
 export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+    const [failures, setFailures] = useState<Record<string, boolean>>({});
     const thumbnailsRef = useRef<Record<string, string>>({});
-    const pendingRef = useRef<Set<string>>(new Set()); // Prevents duplicate requests
+    const pendingRef = useRef<Set<string>>(new Set());
+    const requests = useRef(new Map<string, object>());
 
     const generatePreview = useCallback(async (id: string, path: string) => {
         // If already exists or processing, skip
@@ -20,12 +23,16 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
             return;
         }
 
+        setFailures(previous => { const next = { ...previous }; delete next[id]; return next; });
         pendingRef.current.add(id);
+        const request = {};
+        requests.current.set(id, request);
 
         try {
             // Call Rust command
             const thumbnailBytes = await invoke<number[]>('generate_thumbnail', { path });
 
+            if (requests.current.get(id) !== request) return;
             // Convert to Blob
             const blob = new Blob([new Uint8Array(thumbnailBytes)], { type: 'image/jpeg' });
             const url = URL.createObjectURL(blob);
@@ -33,13 +40,19 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
             thumbnailsRef.current[id] = url;
             setThumbnails(prev => ({ ...prev, [id]: url }));
         } catch (error) {
-            console.error(`Thumbnail generation failed for ${id}:`, error);
+            if (requests.current.get(id) === request) {
+                setFailures(previous => ({ ...previous, [id]: true }));
+                console.error(`Thumbnail generation failed for ${id}:`, error);
+            }
         } finally {
-            pendingRef.current.delete(id);
+            if (requests.current.get(id) === request) { pendingRef.current.delete(id); requests.current.delete(id); }
         }
     }, []);
 
     const revokeThumbnail = useCallback((id: string) => {
+        requests.current.delete(id);
+        pendingRef.current.delete(id);
+        setFailures(previous => { const next = { ...previous }; delete next[id]; return next; });
         const url = thumbnailsRef.current[id];
         if (url) {
             URL.revokeObjectURL(url);
@@ -60,11 +73,12 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
             });
             thumbnailsRef.current = {};
             pendingRef.current.clear();
+            requests.current.clear();
         };
     }, []);
 
     return (
-        <PreviewContext.Provider value={{ thumbnails, generatePreview, revokeThumbnail }}>
+        <PreviewContext.Provider value={{ thumbnails, failures, generatePreview, revokeThumbnail }}>
             {children}
         </PreviewContext.Provider>
     );

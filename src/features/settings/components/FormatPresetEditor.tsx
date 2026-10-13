@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../../lib/utils';
@@ -14,17 +14,11 @@ interface FormatPresetEditorProps {
 
 export const FormatPresetEditor: React.FC<FormatPresetEditorProps> = ({ settings, onUpdate }) => {
     const { t } = useTranslation();
-    const { stats, files } = useBatch();
-
-    const minSizesPerFormat = useMemo(() => {
-        const minSizes: Record<string, number> = {};
-        files.forEach(f => {
-            if (!minSizes[f.format] || f.size < minSizes[f.format]) {
-                minSizes[f.format] = f.size;
-            }
-        });
-        return minSizes;
-    }, [files]);
+    const { stats } = useBatch();
+    const formats = (Object.keys(stats.formatBreakdown) as ImageFormat[])
+        .filter(format => stats.formatBreakdown[format] > 0);
+    const [selectedFormat, setSelectedFormat] = useState<ImageFormat | null>(null);
+    const activeFormat = selectedFormat && formats.includes(selectedFormat) ? selectedFormat : formats[0];
 
     return (
         <AnimatePresence>
@@ -32,22 +26,33 @@ export const FormatPresetEditor: React.FC<FormatPresetEditorProps> = ({ settings
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden space-y-3 pt-4 border-t border-text-main/5"
+                className="space-y-3 pt-4 border-t border-text-main/5"
             >
-                {(Object.keys(stats.formatBreakdown) as ImageFormat[])
-                    .filter(fmt => stats.formatBreakdown[fmt] > 0)
-                    .map((fmt) => {
+                <div className="flex flex-wrap gap-2" aria-label={t('comparison.format')}>
+                    {formats.map(format => (
+                        <button
+                            key={format}
+                            type="button"
+                            aria-pressed={activeFormat === format}
+                            onClick={() => setSelectedFormat(format)}
+                            className={cn('px-3 py-2 rounded-lg text-sm border transition-colors',
+                                activeFormat === format ? 'bg-primary/15 border-primary/40 text-primary' : 'border-text-main/10 text-text-muted hover:text-text-main')}
+                        >
+                            {format} <span className="ml-1 opacity-70">{stats.formatBreakdown[format]}</span>
+                        </button>
+                    ))}
+                </div>
+                {formats.filter(format => format === activeFormat).map((fmt) => {
                         const isUsingMaxSize = !!settings.formatPresets[fmt].maxFileSize;
-                        const minOrigSizeKB = Math.floor(minSizesPerFormat[fmt] / 1024);
+
 
                         return (
                             <div
                                 key={fmt}
                                 className="p-4 rounded-xl bg-text-main/[0.02] border border-text-main/5 group hover:border-primary/20 transition-colors"
                             >
-                                <div className="flex flex-col md:flex-row md:items-center gap-6">
-                                    {/* Format Badge and Target Selection */}
-                                    <div className="flex items-center gap-3 min-w-[140px]">
+                                <div className="flex flex-col gap-4">
+                                    <div className="flex items-center gap-3 w-full">
                                         <div className="w-10 h-10 rounded-lg bg-primary/10 flex flex-col items-center justify-center border border-primary/10">
                                             <span className="text-[10px] font-black text-primary leading-none">{fmt}</span>
                                             <span className="text-[8px] font-bold text-primary/60 mt-0.5">
@@ -56,24 +61,22 @@ export const FormatPresetEditor: React.FC<FormatPresetEditorProps> = ({ settings
                                         </div>
                                         <ChevronRight className="w-3 h-3 text-text-muted/30 group-hover:text-primary/40 transition-colors" />
                                         <select
+                                            aria-label={`${fmt} — ${t('comparison.format')}`}
                                             value={settings.formatPresets[fmt].targetFormat}
-                                            onChange={(e) => onUpdate(fmt, { targetFormat: e.target.value as any })}
+                                            onChange={(e) => onUpdate(fmt, { targetFormat: e.target.value as AdvancedSettings['targetFormat'] })}
                                             className="bg-surface border border-text-main/10 rounded-lg px-2 py-1.5 text-[11px] font-bold text-text-main focus:ring-1 focus:ring-primary outline-none cursor-pointer transition-colors"
                                         >
                                             <option value="Original">{t('analysis.keepOriginal')}</option>
                                             <option value="JPG">JPG</option>
                                             <option value="PNG">PNG</option>
                                             <option value="WebP">WebP</option>
+                                            <option value="AVIF">AVIF</option>
+                                            <option value="BMP">BMP</option>
                                         </select>
                                     </div>
 
-                                    {/* Quality and Max Size Controls */}
-                                    <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {/* Quality Slider */}
-                                        <div className={cn(
-                                            "space-y-1.5 transition-opacity",
-                                            isUsingMaxSize ? "opacity-30 pointer-events-none" : "opacity-100"
-                                        )}>
+                                    <div className="flex-1 grid grid-cols-2 gap-4">
+                                        <div className="space-y-1.5">
                                             <div className="flex justify-between items-center">
                                                 <label className={cn(TYPOGRAPHY.compactLabel, "text-text-muted")}>
                                                     {t('analysis.quality')}
@@ -83,8 +86,9 @@ export const FormatPresetEditor: React.FC<FormatPresetEditorProps> = ({ settings
                                                 </span>
                                             </div>
                                             <input
+                                                aria-label={`${fmt} — ${t('analysis.quality')}`}
                                                 type="range"
-                                                min="10"
+                                                min="1"
                                                 max="100"
                                                 value={settings.formatPresets[fmt].quality}
                                                 onChange={(e) => onUpdate(fmt, { quality: parseInt(e.target.value) })}
@@ -92,7 +96,6 @@ export const FormatPresetEditor: React.FC<FormatPresetEditorProps> = ({ settings
                                             />
                                         </div>
 
-                                        {/* Max File Size Input */}
                                         <div className="space-y-1.5">
                                             <div className="flex justify-between items-center">
                                                 <label className={cn(TYPOGRAPHY.compactLabel, "text-text-muted")}>
@@ -101,12 +104,14 @@ export const FormatPresetEditor: React.FC<FormatPresetEditorProps> = ({ settings
                                             </div>
                                             <div className="relative">
                                                 <input
+                                                    aria-label={`${fmt} — ${t('analysis.maxSize')}`}
+                                                    min={1} step={1}
                                                     type="number"
                                                     placeholder={t('analysis.noLimit')}
                                                     value={settings.formatPresets[fmt].maxFileSize || ''}
                                                     onChange={(e) => {
                                                         const val = e.target.value ? parseInt(e.target.value) : undefined;
-                                                        if (val && val > minOrigSizeKB) return;
+                                                        if (val !== undefined && (!Number.isFinite(val) || val <= 0)) return;
                                                         onUpdate(fmt, { maxFileSize: val });
                                                     }}
                                                     className={cn(
@@ -122,7 +127,6 @@ export const FormatPresetEditor: React.FC<FormatPresetEditorProps> = ({ settings
                                     </div>
                                 </div>
 
-                                {/* Keep Metadata Checkbox */}
                                 <div className="pt-3 border-t border-text-main/5 mt-3">
                                     <label className="flex items-center gap-2 cursor-pointer group">
                                         <input

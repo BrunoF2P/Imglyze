@@ -1,46 +1,40 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { logger } from '../../../lib/logger';
-import { FileItem, BatchSettings } from '../../../types';
+import { FileItem, BatchSettings, BatchOutcome } from '../../../types';
 import { processingEventBus } from '../../../lib/EventBus';
 
 export class BatchProcessingService {
-    private initialized = false;
+    private cancelled = false;
+    private ready?: Promise<void>;
     private unlisteners: UnlistenFn[] = [];
 
-    constructor() {
-        this.initListeners().catch(err => {
-            logger.error('Failed to initialize listeners:', err);
-        });
+    private initListeners(): Promise<void> {
+        this.ready ??= (async () => {
+            const progress = await listen<FileItem>('file-processed', event => processingEventBus.emit('file-processed', event.payload));
+            try {
+                const logs = await listen<string>('log', event => processingEventBus.emit('log', event.payload));
+                this.unlisteners.push(progress, logs);
+            } catch (error) { progress(); this.ready = undefined; throw error; }
+        })().catch(error => { this.ready = undefined; throw error; });
+        return this.ready;
     }
 
-    private async initListeners() {
-        if (this.initialized) return;
-        this.initialized = true;
-
-        const unlisten1 = await listen<FileItem>('file-processed', (event) => {
-            processingEventBus.emit('file-processed', event.payload);
-        });
-
-        const unlisten2 = await listen<string>('log', (event) => {
-            processingEventBus.emit('log', event.payload);
-        });
-
-        this.unlisteners.push(unlisten1, unlisten2);
-    }
-
-    async startBatch(files: FileItem[], settings: BatchSettings): Promise<void> {
+    async startBatch(files: FileItem[], settings: BatchSettings): Promise<BatchOutcome> {
         logger.info('Starting batch processing', {
             fileCount: files.length,
             outputMode: settings.outputMode
         });
         const endTimer = logger.time('batch-processing');
 
-        await invoke('set_processing_status', { status: 0 });
-        await invoke('run_batch', { items: files, settings });
+        this.cancelled = false;
+        await this.initListeners();
+        if (this.cancelled) return { cancelled: true, successes: 0, errors: 0 };
+        const outcome = await invoke<BatchOutcome>('run_batch', { items: files, settings });
 
         endTimer();
         logger.info('Batch processing completed');
+        return outcome;
     }
 
     async pauseBatch(): Promise<void> {
@@ -52,6 +46,7 @@ export class BatchProcessingService {
     }
 
     async cancelBatch(): Promise<void> {
+        this.cancelled = true;
         await invoke('set_processing_status', { status: 2 });
     }
 
@@ -66,7 +61,7 @@ export class BatchProcessingService {
     public cleanup() {
         this.unlisteners.forEach(unlisten => unlisten());
         this.unlisteners = [];
-        this.initialized = false;
+        this.ready = undefined;
     }
 }
 

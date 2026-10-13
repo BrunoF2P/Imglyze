@@ -4,14 +4,14 @@ import { FileItem, BatchStats } from '../../../types';
 export function useResultStats(files: FileItem[], stats: BatchStats) {
     return useMemo(() => {
         const totalSavedBytes = files.reduce((acc, f) => {
-            if (f.status === 'Done' && f.optimizedSize) {
+            if (f.selected && f.status === 'Done' && f.optimizedSize != null) {
                 return acc + (f.size - f.optimizedSize);
             }
             return acc;
         }, 0);
 
         const originalSizeProcessed = files.reduce((acc, f) => {
-            if (f.status === 'Done') return acc + f.size;
+            if (f.selected && f.status === 'Done' && f.optimizedSize != null) return acc + f.size;
             return acc;
         }, 0);
 

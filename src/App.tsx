@@ -1,3 +1,5 @@
+import { Toaster, toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DropZone } from './components/ui/DropZone';
@@ -12,6 +14,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useBatch } from './contexts/BatchContext';
 
 export function App() {
+  const { t } = useTranslation();
   const {
     state,
     setState,
@@ -26,6 +29,7 @@ export function App() {
 
   useEffect(() => {
     loadSystemTheme();
+    if (!("__TAURI_INTERNALS__" in window)) return;
     const win = getCurrentWindow();
     const unlisten = win.onThemeChanged(() => {
       loadSystemTheme();
@@ -42,13 +46,13 @@ export function App() {
           onSelectImages={triggerFileSelection}
           onSelectZip={triggerZipSelection}
           onSelectFolder={triggerFolderSelection}
-          onAbout={() => alert('Imglyze v0.1.0 Alpha')}
-          showReset={state !== 'IDLE'}
+          onAbout={() => toast.info(t('v1.about'))}
+          showReset={state !== 'IDLE' && state !== 'PROCESSING'}
           onReset={resetBatch}
         />
 
         <main className="flex-1 overflow-y-auto px-6 relative z-10 custom-scrollbar flex flex-col">
-          <div className="max-w-6xl mx-auto w-full flex-1 py-10">
+          <div className="max-w-[1600px] mx-auto w-full flex-1 py-6">
             <AnimatePresence mode="wait">
               {state === 'IDLE' && (
                 <motion.div
@@ -95,12 +99,13 @@ export function App() {
           </div>
         </main>
 
-        <ResultModal isOpen={state === 'COMPLETED'} onClose={() => setState('IDLE')} />
+        <ResultModal isOpen={state === 'COMPLETED'} onClose={() => setState('ANALYSIS')} />
 
         <CompareModal
           file={comparingFile}
           onClose={() => setComparingFile(null)}
         />
+        <Toaster position="bottom-right" richColors />
       </div>
     </ErrorBoundary>
   );

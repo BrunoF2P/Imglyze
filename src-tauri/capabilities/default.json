@@ -16,11 +16,9 @@
     "store:allow-load",
     "store:allow-save",
     "store:allow-get",
-    "store:allow-set"
-  ],
-  "allow": [
-    {
-      "cmd": "generate_thumbnail"
-    }
+    "store:allow-set",
+    "opener:allow-reveal-item-in-dir",
+    "notification:default",
+    "core:window:allow-is-focused"
   ]
 }

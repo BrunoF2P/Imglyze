@@ -36,6 +36,8 @@ pub fn run() {
     tauri::Builder::default()
         .manage(domain::models::AppState::default())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             get_system_theme,
@@ -43,6 +45,8 @@ pub fn run() {
             application::batch_processor::run_batch,
             application::batch_processor::set_processing_status,
             application::commands::generate_thumbnail,
+            application::commands::prepare_comparison_image,
+            application::batch_processor::preview_image,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

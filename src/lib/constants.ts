@@ -5,8 +5,8 @@ export const ANIMATION_DELAYS = {
 } as const;
 
 export const TYPOGRAPHY = {
-    label: "text-[10px] font-bold uppercase tracking-wider text-text-muted",
-    compactLabel: "text-[9px] font-bold uppercase tracking-widest leading-none text-text-muted",
+    label: "text-xs font-medium text-text-muted",
+    compactLabel: "text-xs font-medium leading-none text-text-muted",
     heading: "text-2xl font-bold tracking-tight",
     subHeading: "text-lg font-bold tracking-tight",
     statsValue: "text-2xl font-bold tracking-tight",

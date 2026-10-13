@@ -15,13 +15,16 @@ export interface BatchState {
     isPaused: boolean;
     comparingFile: FileItem | null;
     batchTiming: BatchTiming;
+    outputPath?: string;
 }
 
 export type BatchAction =
     | { type: 'SET_STATUS'; payload: AppState }
+    | { type: 'SET_OUTPUT_PATH'; payload: string | undefined }
     | { type: 'SET_FILES'; payload: FileItem[] }
     | { type: 'ADD_FILES'; payload: FileItem[] }
     | { type: 'UPDATE_FILE'; payload: FileItem }
+    | { type: 'UPDATE_FILES'; payload: FileItem[] }
     | { type: 'REMOVE_FILE'; payload: string }
     | { type: 'SET_SETTINGS'; payload: BatchSettings }
     | { type: 'UPDATE_SETTINGS'; payload: Partial<BatchSettings> }

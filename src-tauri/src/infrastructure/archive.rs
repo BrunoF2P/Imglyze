@@ -3,61 +3,15 @@ use fs2::free_space;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::SystemTime;
-use tauri::Emitter;
+use std::sync::atomic::Ordering;
+use tauri::{Emitter, Manager};
 use zip::write::FileOptions;
-
-/// RAII guard for temporary files - auto-deletes on drop unless persisted.
-struct ScopedTempFile(PathBuf);
-
-impl ScopedTempFile {
-    fn new(path: PathBuf) -> Self {
-        Self(path)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-
-    /// Moves the temporary file to its final destination and prevents deletion.
-    fn persist(self, dest: &Path) -> Result<(), String> {
-        if let Err(rename_err) = fs::rename(&self.0, dest) {
-            // Fallback for cross-partition moves
-            fs::copy(&self.0, dest).map_err(|copy_err| {
-                format!(
-                    "Failed to finalize ZIP (rename: {}, copy: {})",
-                    rename_err, copy_err
-                )
-            })?;
-        }
-        // Prevent Drop cleanup on success
-        std::mem::forget(self);
-        Ok(())
-    }
-}
-
-impl Drop for ScopedTempFile {
-    fn drop(&mut self) {
-        if self.0.exists() {
-            if let Err(e) = fs::remove_file(&self.0) {
-                tracing::warn!(
-                    path = ?self.0,
-                    error = ?e,
-                    "Failed to cleanup temporary ZIP file"
-                );
-            }
-        }
-    }
-}
 
 pub fn finalize_zip(
     app: &tauri::AppHandle,
     settings: &BatchSettings,
     output_dir: &Path,
     processed_paths: &[PathBuf],
-    cancel_token: Option<Arc<AtomicBool>>,
 ) -> Result<(), String> {
     let zip_dest = settings
         .output_path
@@ -76,13 +30,23 @@ pub fn finalize_zip(
 
     verify_disk_space(processed_paths, &zip_dest)?;
 
-    match create_zip(app, processed_paths, &zip_dest, cancel_token) {
+    match create_zip(
+        processed_paths,
+        output_dir,
+        &zip_dest,
+        || {
+            app.state::<crate::domain::models::AppState>()
+                .processing_status
+                .load(Ordering::SeqCst)
+                == 2
+        },
+        |done, total| {
+            let _ = app.emit("zip_progress", (done, total));
+        },
+    ) {
         Ok(_) => {
             app.emit("log", "ZIP created successfully.")
                 .map_err(|e| format!("Failed to emit log: {}", e))?;
-
-            fs::remove_dir_all(output_dir)
-                .map_err(|e| format!("Failed to cleanup temp dir: {}", e))?;
 
             Ok(())
         }
@@ -131,66 +95,33 @@ fn verify_disk_space(files: &[PathBuf], dest: &Path) -> Result<(), String> {
 }
 
 fn create_zip(
-    app: &tauri::AppHandle,
     files: &[PathBuf],
+    root: &Path,
     dest: &Path,
-    cancel_token: Option<Arc<AtomicBool>>,
+    cancelled: impl Fn() -> bool,
+    progress: impl Fn(usize, usize),
 ) -> Result<(), String> {
-    // Use timestamp to avoid conflicts with orphaned temp files
-    let timestamp = SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-
-    let temp_zip_path = dest.with_extension(format!("zip.tmp.{}", timestamp));
-    let temp_file_guard = ScopedTempFile::new(temp_zip_path.clone());
-
-    let file = fs::File::create(temp_file_guard.path())
-        .map_err(|e| format!("Failed to create ZIP file: {}", e))?;
-
-    let mut zip = zip::ZipWriter::new(file);
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(dest.parent().ok_or("Missing destination directory")?)
+            .map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipWriter::new(temporary.as_file_mut());
     let total = files.len();
     let mut seen_names = HashSet::new();
 
     for (i, path) in files.iter().enumerate() {
-        if let Some(ref token) = cancel_token {
-            if token.load(Ordering::Relaxed) {
-                return Err("Operation cancelled by user".into());
-            }
+        if cancelled() {
+            return Err("Operation cancelled by user".into());
         }
-
-        let original_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .ok_or_else(|| format!("Invalid filename: {:?}", path))?;
-
-        // Prevent Zip Slip attacks
-        if original_name.contains("..")
-            || original_name.contains('/')
-            || original_name.contains('\\')
+        let relative = path.strip_prefix(root).map_err(|e| e.to_string())?;
+        if !relative
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
         {
-            return Err(format!("Unsafe filename detected: {}", original_name));
+            return Err("Unsafe archive path".into());
         }
-
-        // Handle duplicate filenames
-        let mut name = original_name.to_string();
-        let mut counter = 1;
-        while !seen_names.insert(name.clone()) {
-            let stem = Path::new(original_name)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("file");
-            let ext = Path::new(original_name)
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("");
-
-            name = if ext.is_empty() {
-                format!("{}_{}", stem, counter)
-            } else {
-                format!("{}_{}.{}", stem, counter, ext)
-            };
-            counter += 1;
+        let name = relative.to_string_lossy().replace('\\', "/");
+        if !seen_names.insert(name.clone()) {
+            return Err("Duplicate archive path".into());
         }
 
         let metadata = fs::metadata(path)
@@ -206,7 +137,14 @@ fn create_zip(
                 if let Ok(offset_dt) =
                     time::OffsetDateTime::from_unix_timestamp(duration.as_secs() as i64)
                 {
-                    if let Ok(datetime) = zip::DateTime::try_from(offset_dt) {
+                    if let Ok(datetime) = zip::DateTime::from_date_and_time(
+                        offset_dt.year() as u16,
+                        offset_dt.month() as u8,
+                        offset_dt.day(),
+                        offset_dt.hour(),
+                        offset_dt.minute(),
+                        offset_dt.second(),
+                    ) {
                         options = options.last_modified_time(datetime);
                     }
                 }
@@ -219,12 +157,19 @@ fn create_zip(
         let mut file =
             fs::File::open(path).map_err(|e| format!("Failed to open {}: {}", name, e))?;
 
-        std::io::copy(&mut file, &mut zip)
-            .map_err(|e| format!("Failed to write {}: {}", name, e))?;
-
-        if let Err(e) = app.emit("zip_progress", (i + 1, total)) {
-            tracing::warn!(error = ?e, "Failed to emit ZIP progress");
+        use std::io::{Read, Write};
+        let mut buffer = [0u8; 65536];
+        loop {
+            if cancelled() {
+                return Err("Operation cancelled by user".into());
+            }
+            let count = file.read(&mut buffer).map_err(|e| e.to_string())?;
+            if count == 0 {
+                break;
+            }
+            zip.write_all(&buffer[..count]).map_err(|e| e.to_string())?;
         }
+        progress(i + 1, total);
     }
 
     // finish() consumes zip and closes the file handle
@@ -232,7 +177,48 @@ fn create_zip(
         .map_err(|e| format!("Failed to finalize ZIP: {}", e))?;
 
     // Move temp file to final destination
-    temp_file_guard.persist(dest)?;
+    if cancelled() {
+        return Err("Operation cancelled by user".into());
+    }
+    temporary.as_file().sync_all().map_err(|e| e.to_string())?;
+    temporary
+        .persist_noclobber(dest)
+        .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn archive_preserves_same_names_in_different_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths: Vec<_> = ["a/photo.png", "b/photo.png"]
+            .into_iter()
+            .map(|name| {
+                let path = dir.path().join(name);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(&path, b"image").unwrap();
+                path
+            })
+            .collect();
+        let dest = dir.path().join("result.zip");
+        create_zip(&paths, dir.path(), &dest, || false, |_, _| {}).unwrap();
+        let mut zip = zip::ZipArchive::new(fs::File::open(dest).unwrap()).unwrap();
+        assert_eq!(zip.len(), 2);
+        assert_eq!(zip.by_index(0).unwrap().name().unwrap(), "a/photo.png");
+        assert_eq!(zip.by_index(1).unwrap().name().unwrap(), "b/photo.png");
+    }
+    #[test]
+    fn cancellation_leaves_no_partial_archive_and_keeps_existing_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("photo.png");
+        let dest = dir.path().join("result.zip");
+        fs::write(&file, b"image").unwrap();
+        fs::write(&dest, b"keep").unwrap();
+        assert!(create_zip(&[file], dir.path(), &dest, || true, |_, _| {}).is_err());
+        assert_eq!(fs::read(dest).unwrap(), b"keep");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+    }
 }

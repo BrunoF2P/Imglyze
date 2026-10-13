@@ -3,6 +3,12 @@ import { PresetId, settingsService } from '../features/settings/services/Setting
 
 export const batchReducer = (state: BatchState, action: BatchAction): BatchState => {
     switch (action.type) {
+        case 'SET_OUTPUT_PATH':
+            return { ...state, outputPath: action.payload };
+        case 'UPDATE_FILES': {
+            const updates = new Map(action.payload.map(file => [file.id, file]));
+            return { ...state, files: state.files.map(file => updates.get(file.id) ?? file) };
+        }
         case 'SET_STATUS':
             return { ...state, status: action.payload };
 
@@ -60,7 +66,7 @@ export const batchReducer = (state: BatchState, action: BatchAction): BatchState
             return { ...state, comparingFile: action.payload };
 
         case 'ADD_LOG':
-            return { ...state, logs: [...state.logs, action.payload] };
+            return { ...state, logs: [...state.logs.slice(-999), action.payload] };
 
         case 'CLEAR_LOGS':
             return { ...state, logs: [] };
@@ -80,6 +86,7 @@ export const batchReducer = (state: BatchState, action: BatchAction): BatchState
                 comparingFile: null,
                 isPaused: false,
                 batchTiming: {},
+                outputPath: undefined,
                 settings: action.payload // Reset to defaults provided in payload
             };
 

@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Info, ChevronLeft, ChevronRight, Maximize2, Minimize2, RotateCcw } from 'lucide-react';
+import { X, Info, ChevronLeft, ChevronRight, Maximize2, Minimize2, RotateCcw, Loader2, ImageOff } from 'lucide-react';
 import OpenSeadragon from 'openseadragon';
 import { FileItem } from '../../../types';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { useDialogFocus } from '../../../hooks/useDialogFocus';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { cn, formatBytes } from '../../../lib/utils';
 import { InfoStat } from '../../../components/ui/InfoStat';
 import { useTranslation } from 'react-i18next';
@@ -15,10 +16,14 @@ interface CompareModalProps {
 
 export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => {
     const { t } = useTranslation();
+    const dialog = useDialogFocus(!!file, onClose);
     const [sliderPos, setSliderPos] = useState(50);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isDraggingSlider, setIsDraggingSlider] = useState(false);
-    const [scale, setScale] = useState(1); // State para o zoom
+    const [scale, setScale] = useState(1);
+    const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [retry, setRetry] = useState(0);
 
     const viewerRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -39,6 +44,8 @@ export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => 
         setSliderPos(50);
         sliderPosRef.current = 50;
         setScale(1);
+        setLoadError(null);
+        setLoading(true);
     }, [file?.id]);
 
     const updateZoomDisplay = useCallback(() => {
@@ -87,15 +94,22 @@ export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => 
 
     // Initialize OpenSeadragon
     useEffect(() => {
-        if (!file || !viewerRef.current) return;
+        if (!file || !viewerRef.current || file.previewPending || file.error && !file.optimizedPath) return;
+        setLoading(true);
+        setLoadError(null);
 
-        const originalSrc = convertFileSrc(file.path);
-        const optimizedSrc = file.optimizedPath ? convertFileSrc(file.optimizedPath) : originalSrc;
+        let disposed = false;
+        let finalizeFrame = 0;
+        const fail = (error: unknown) => {
+            if (disposed) return;
+            setLoading(false);
+            setLoadError(String(error));
+        };
 
         const viewer = OpenSeadragon({
             element: viewerRef.current,
-            prefixUrl: '//openseadragon.github.io/openseadragon/images/',
             drawer: ['canvas', 'html'],
+            crossOriginPolicy: 'Anonymous',
             showNavigationControl: false,
             showFullPageControl: false,
             showZoomControl: false,
@@ -121,32 +135,27 @@ export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => 
 
         const maybeFinalize = () => {
             const { left, right } = imagesRef.current;
-            if (!left || !right) return;
+            if (disposed || !left || !right) return;
 
             viewer.world.setItemIndex(left, 0);
             viewer.world.setItemIndex(right, 1);
 
-            setTimeout(() => {
+            viewer.viewport.goHome(true);
+            updateClipping();
+            finalizeFrame = requestAnimationFrame(() => {
+                if (disposed) return;
                 updateClipping();
                 updateZoomDisplay();
-            }, 100);
+                setLoading(false);
+            });
         };
 
-        viewer.addTiledImage({
-            tileSource: { type: 'image', url: originalSrc },
-            success: (event: any) => {
-                imagesRef.current.left = event.item;
-                maybeFinalize();
-            },
-        });
-
-        viewer.addTiledImage({
-            tileSource: { type: 'image', url: optimizedSrc },
-            success: (event: any) => {
-                imagesRef.current.right = event.item;
-                maybeFinalize();
-            },
-        });
+        Promise.all([file.originalPreview ?? file.path, file.optimizedPath ?? file.path].map(path => invoke<string>('prepare_comparison_image', { path }))).then(([original, optimized]) => {
+            if (disposed) return;
+            viewer.addTiledImage({ width: 1, tileSource: { type: 'image', url: convertFileSrc(original) }, error: () => fail(t('v1.imageLoadError')), success: event => { if (!disposed) { imagesRef.current.left = (event as unknown as { item: OpenSeadragon.TiledImage }).item; maybeFinalize(); } } });
+            viewer.addTiledImage({ width: 1, tileSource: { type: 'image', url: convertFileSrc(optimized) }, error: () => fail(t('v1.imageLoadError')), success: event => { if (!disposed) { imagesRef.current.right = (event as unknown as { item: OpenSeadragon.TiledImage }).item; maybeFinalize(); } } });
+        }).catch(fail);
+        viewer.addHandler('tile-load-failed', () => fail(t('v1.imageLoadError')));
 
         viewer.addHandler('animation', () => {
             updateClipping();
@@ -163,11 +172,13 @@ export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => 
         viewer.addHandler('zoom', updateZoomDisplay);
 
         return () => {
+            disposed = true;
+            cancelAnimationFrame(finalizeFrame);
             viewer.destroy();
             viewerInstance.current = null;
             imagesRef.current = { left: null, right: null };
         };
-    }, [file?.id, updateClipping, updateZoomDisplay]);
+    }, [file?.id, file?.optimizedPath, file?.originalPreview, file?.previewPending, file?.error, retry, t, updateClipping, updateZoomDisplay]);
 
     useEffect(() => {
         if (imagesRef.current.left && imagesRef.current.right) {
@@ -261,7 +272,8 @@ export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => 
         viewerInstance.current?.viewport.applyConstraints();
     };
 
-    const reduction = file.optimizedSize ? Math.round((1 - file.optimizedSize / file.size) * 100) : 0;
+    const reduction = file.optimizedSize != null && file.size > 0
+        ? `${Math.round((1 - file.optimizedSize / file.size) * 100)}%` : '—';
 
     return (
         <AnimatePresence>
@@ -269,7 +281,7 @@ export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => 
                 initial={false}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background/90 backdrop-blur-sm"
+                ref={dialog} role="dialog" aria-modal="true" aria-label={file.name} className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background/90"
             >
                 <div
                     className={cn(
@@ -284,10 +296,10 @@ export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => 
                                 <Maximize2 className="w-5 h-5 text-primary" />
                             </div>
                             <div>
-                                <h3 className="text-lg font-bold tracking-tight uppercase">{file.name}</h3>
-                                <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest flex items-center gap-2">
+                                <h3 className="text-lg font-semibold tracking-tight">{file.name}</h3>
+                                <p className="text-xs font-medium text-text-muted flex items-center gap-2">
                                     {file.format} <span className="w-1 h-1 rounded-full bg-text-main/20" />
-                                    {reduction}% {t('comparison.reduction')}
+                                    {reduction} {t('comparison.reduction')}
                                 </p>
                             </div>
                         </div>
@@ -296,7 +308,7 @@ export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => 
                                 <button
                                     onClick={resetView}
                                     aria-label={t('comparison.resetZoom')}
-                                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-all text-[10px] font-bold uppercase tracking-wider"
+                                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-all text-xs font-medium"
                                 >
                                     <RotateCcw className="w-3.5 h-3.5" />
                                     {t('comparison.resetZoom')}
@@ -344,7 +356,7 @@ export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => 
                         role="region"
                         aria-label={t('comparison.ariaLabel')}
                         aria-describedby="comparison-hint"
-                        className="flex-1 relative overflow-hidden bg-black/40 group select-none"
+                        className="flex-1 relative overflow-hidden comparison-canvas group select-none"
                         onMouseMove={handleMouseMove}
                         onMouseUp={handleMouseUp}
                         onMouseLeave={handleMouseUp}
@@ -358,12 +370,15 @@ export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => 
                             style={{ touchAction: 'none' }}
                         />
 
+                        {(file.previewPending || file.error && !file.optimizedPath || loading || loadError) && <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-[#111626]/95 text-white p-8 text-center">
+                            {loadError || file.error && !file.optimizedPath ? <><ImageOff size={32} className="text-red-400" /><p role="alert">{t('v1.previewError')}</p><p className="text-sm text-slate-300 max-w-lg break-words">{loadError ?? file.error}</p>{!file.error && <button className="btn-primary" onClick={() => setRetry(value => value + 1)}>{t('v1.retryPreview')}</button>}</> : <><Loader2 size={32} className="animate-spin text-violet-300" /><p role="status">{t(file.previewPending ? 'v1.generatingPreview' : 'v1.loadingImages')}</p><p className="text-sm text-slate-300">{file.name}</p></>}
+                        </div>}
                         {/* Labels */}
-                        <div className="absolute top-6 left-6 px-3 py-1.5 bg-black/60 backdrop-blur-md rounded-lg border border-white/10 text-[10px] font-black text-white uppercase tracking-widest z-20 pointer-events-none">
+                        <div className="absolute top-6 left-6 px-3 py-1.5 bg-black/60 rounded-lg border border-white/10 text-xs font-medium text-white z-20 pointer-events-none">
                             {t('comparison.original')} ({formatBytes(file.size, 1)})
                         </div>
-                        <div className="absolute top-6 right-6 px-3 py-1.5 bg-primary/60 backdrop-blur-md rounded-lg border border-primary/20 text-[10px] font-black text-white uppercase tracking-widest z-20 pointer-events-none">
-                            {t('comparison.optimized')} ({file.optimizedSize ? formatBytes(file.optimizedSize, 1) : '0 B'})
+                        <div className="absolute top-6 right-6 px-3 py-1.5 bg-[#6550df]/90 rounded-lg border border-primary/20 text-xs font-medium text-white z-20 pointer-events-none">
+                            {t('comparison.optimized')} ({file.optimizedSize ? formatBytes(file.optimizedSize, 1) : '—'})
                         </div>
 
                         {/* Slider Handle */}
@@ -373,6 +388,7 @@ export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => 
                                 isDraggingSlider ? "opacity-100" : "opacity-60 group-hover:opacity-100"
                             )}
                             style={{ left: `${sliderPos}%` }}
+                            role="slider" tabIndex={0} aria-label={t('comparison.ariaLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={sliderPos}
                             onMouseDown={handleSliderMouseDown}
                             onTouchStart={handleSliderMouseDown}
                         >
@@ -390,7 +406,7 @@ export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => 
                             id="comparison-hint"
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
-                            className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-2 bg-black/40 backdrop-blur-xl rounded-full border border-white/10 text-[9px] font-bold text-white uppercase tracking-widest z-40 pointer-events-none"
+                            className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-2 bg-black/40 rounded-full border border-white/10 text-xs font-medium text-white z-40 pointer-events-none"
                         >
                             <Info className="w-3 h-3 text-primary" />
                             {scale > 1.1
@@ -403,9 +419,9 @@ export const CompareModal: React.FC<CompareModalProps> = ({ file, onClose }) => 
                     {/* Footer Info */}
                     <div className="p-6 border-t border-text-main/5 grid grid-cols-2 md:grid-cols-4 gap-6 bg-text-main/[0.01]">
                         <InfoStat label={t('comparison.originalSize')} value={formatBytes(file.size, 1)} />
-                        <InfoStat label={t('comparison.optimizedSize')} value={file.optimizedSize ? formatBytes(file.optimizedSize, 1) : '0 B'} color="text-primary" />
-                        <InfoStat label={t('comparison.totalReduction')} value={`${reduction}%`} color="text-green-400" />
-                        <InfoStat label={t('comparison.format')} value={file.format} />
+                        <InfoStat label={t('comparison.optimizedSize')} value={file.optimizedSize ? formatBytes(file.optimizedSize, 1) : '—'} color="text-primary" />
+                        <InfoStat label={t('comparison.totalReduction')} value={reduction} color="text-green-400" />
+                        <InfoStat label={file.fidelity != null ? "SSIM" : t('comparison.format')} value={file.fidelity != null ? `${file.fidelity.toFixed(2)}%` : file.format} />
                     </div>
                 </div>
             </motion.div>

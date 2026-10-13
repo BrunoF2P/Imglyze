@@ -1,134 +1,57 @@
-import React from 'react';
-import { FileCode, X, GripVertical, ChevronDown } from 'lucide-react';
-import { motion } from 'framer-motion';
-import { Reorder } from 'framer-motion';
-import { cn, formatBytes } from '../../../lib/utils';
+import { useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { Eye, Loader2, Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { FileItem } from '../../../types';
-import { ANIMATION_DELAYS, TYPOGRAPHY, LAYOUT } from '../../../lib/constants';
+import { formatBytes } from '../../../lib/utils';
 import { FileThumbnail } from './FileThumbnail';
 
-interface FileListPanelProps {
-    files: FileItem[];
-    onRemoveFile: (id: string) => void;
-    onReorderFiles: (files: FileItem[]) => void;
-    onSortFiles: (criteria: 'name' | 'size' | 'format') => void;
-    onHoverFile: (path: string | null) => void;
+export type QueueSort = 'name' | 'size' | 'savings' | 'percent';
+export function filterAndSortFiles(files: FileItem[], query: string, status: string, sort: QueueSort) {
+    const filtered = files.filter(f => (f.relativePath ?? f.name).toLocaleLowerCase().includes(query.toLocaleLowerCase()) && (status === 'all' || f.status === status));
+    const savings = (f: FileItem) => f.status === 'Done' ? f.size - (f.optimizedSize ?? f.size) : 0;
+    return filtered.sort((a, b) => sort === 'name' ? a.name.localeCompare(b.name, undefined, { numeric: true })
+        : sort === 'size' ? b.size - a.size : sort === 'savings' ? savings(b) - savings(a)
+        : savings(b) / (b.size || 1) - savings(a) / (a.size || 1));
 }
-
-export const FileListPanel: React.FC<FileListPanelProps> = ({
-    files,
-    onRemoveFile,
-    onReorderFiles,
-    onSortFiles,
-    onHoverFile
-}) => {
+interface Props {
+    files: FileItem[];
+    onRemoveFile?: (id: string) => void;
+    onSelectFile?: (id: string) => void;
+    onPreview?: (file: FileItem) => void;
+    onCompare?: (file: FileItem) => void;
+    previewing?: string | null;
+}
+export function FileListPanel({ files, onRemoveFile, onSelectFile, onPreview, onCompare, previewing }: Props) {
     const { t } = useTranslation();
-
-    return (
-        <motion.section
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: ANIMATION_DELAYS.viewTransition + 0.2 }}
-            className={cn(LAYOUT.glass, LAYOUT.cardPadding, LAYOUT.largeBorderRadius, "h-fit")}
-        >
-            <div className="flex items-center justify-between mb-4">
-                <h3 className={cn(TYPOGRAPHY.subHeading, "flex items-center gap-2")}>
-                    <FileCode className="w-5 h-5 text-primary" />
-                    {t('analysis.fileList')}
-                </h3>
-
-                {/* Sort Dropdown */}
-                <div className="relative group">
-                    <button className="flex items-center gap-1 text-[9px] font-bold text-text-muted hover:text-primary transition-colors uppercase tracking-wider">
-                        {t('analysis.sort')}
-                        <ChevronDown className="w-3 h-3" />
-                    </button>
-
-                    <div className="absolute right-0 top-full mt-2 w-32 bg-surface/95 backdrop-blur-xl border border-text-main/10 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                        <button
-                            onClick={() => onSortFiles('name')}
-                            className="w-full px-4 py-2 text-[10px] font-bold text-left hover:bg-primary/10 hover:text-primary transition-colors first:rounded-t-xl"
-                        >
-                            {t('analysis.sortName')}
-                        </button>
-                        <button
-                            onClick={() => onSortFiles('size')}
-                            className="w-full px-4 py-2 text-[10px] font-bold text-left hover:bg-primary/10 hover:text-primary transition-colors"
-                        >
-                            {t('analysis.sortSize')}
-                        </button>
-                        <button
-                            onClick={() => onSortFiles('format')}
-                            className="w-full px-4 py-2 text-[10px] font-bold text-left hover:bg-primary/10 hover:text-primary transition-colors last:rounded-b-xl"
-                        >
-                            {t('analysis.sortFormat')}
-                        </button>
-                    </div>
-                </div>
+    const [query, setQuery] = useState('');
+    const [status, setStatus] = useState('all');
+    const [sort, setSort] = useState<QueueSort>('name');
+    const scroll = useRef<HTMLDivElement>(null);
+    const visible = useMemo(() => filterAndSortFiles(files, query, status, sort), [files, query, status, sort]);
+    const virtual = useVirtualizer({ count: visible.length, getScrollElement: () => scroll.current, estimateSize: () => 80, overscan: 5, initialRect: { width: 600, height: 480 }, getItemKey: index => visible[index].id });
+    return <section className="panel queue-panel">
+        <div className="flex items-center justify-between mb-5"><div><p className="eyebrow">{t('v1.workspace')}</p><h3 className="text-lg font-semibold mt-1">{t('analysis.fileList')} <span className="text-text-muted font-normal text-sm">{visible.length} / {files.length}</span></h3></div></div>
+        <div className="flex flex-wrap gap-2 mb-5">
+            <label className="relative flex-1 min-w-40"><Search size={16} className="absolute left-3 top-3 text-text-muted" /><input className="field w-full pl-9" aria-label={t('v1.search')} placeholder={t('v1.search')} value={query} onChange={e => setQuery(e.target.value)} /></label>
+            <select className="field" aria-label={t('v1.status')} value={status} onChange={e => setStatus(e.target.value)}><option value="all">{t('v1.allStatuses')}</option>{['Pending', 'Processing', 'Done', 'Error'].map(s => <option key={s} value={s}>{t(`v1.status${s}`)}</option>)}</select>
+            <select className="field" aria-label={t('analysis.sort')} value={sort} onChange={e => setSort(e.target.value as QueueSort)}>{(['name', 'size', 'savings', 'percent'] as const).map(s => <option key={s} value={s}>{t(`v1.sort${s}`)}</option>)}</select>
+        </div>
+        <div ref={scroll} className="queue-scroll custom-scrollbar" role="list" aria-label={t('analysis.fileList')}>
+            {!visible.length && <p className="text-sm text-text-muted py-12 text-center">{t('v1.noMatches')}</p>}
+            <div style={{ height: virtual.getTotalSize(), position: 'relative' }}>
+                {virtual.getVirtualItems().map(row => {
+                    const file = visible[row.index];
+                    return <div role="listitem" key={file.id} className="queue-row" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: row.size, transform: `translateY(${row.start}px)` }}>
+                        {onSelectFile && <input type="checkbox" aria-label={t('v1.selectFile', { name: file.name })} checked={file.selected} onChange={() => onSelectFile(file.id)} />}
+                        <FileThumbnail id={file.id} path={file.path} name={file.name} className="w-11 h-11 rounded-md overflow-hidden shrink-0" />
+                        <div className="min-w-0 flex-1"><p className="text-sm font-medium truncate" title={file.relativePath ?? file.name}>{file.relativePath ?? file.name}</p><p className="text-xs text-text-muted mt-1">{file.format} · {formatBytes(file.size, 1)}{file.optimizedSize != null && ` → ${formatBytes(file.optimizedSize, 1)}`} {file.fidelity != null && ` · SSIM ${file.fidelity.toFixed(1)}%`}</p>{file.error && <p className="text-xs text-red-500 truncate" title={file.error}>{file.error}</p>}</div>
+                        <span className={`text-xs ${file.status === 'Error' ? 'text-red-500' : 'text-text-muted'}`}>{t(`v1.status${file.status}`)}</span>
+                        {(onPreview || onCompare && file.status === 'Done') && <button className="icon-button" disabled={!!previewing} aria-label={t('v1.previewFile', { name: file.name })} onClick={() => file.status === 'Done' && file.optimizedPath && onCompare ? onCompare(file) : onPreview?.(file)}>{previewing === file.id ? <Loader2 size={17} className="animate-spin" /> : <Eye size={17} />}</button>}
+                        {onRemoveFile && <button className="icon-button" aria-label={t('v1.removeFile', { name: file.name })} onClick={() => onRemoveFile(file.id)}><X size={16} /></button>}
+                    </div>;
+                })}
             </div>
-
-            {/* File List with Drag-and-Drop Reordering */}
-            <Reorder.Group
-                axis="y"
-                values={files}
-                onReorder={onReorderFiles}
-                className="space-y-2 max-h-[500px] overflow-y-auto custom-scrollbar pr-2"
-            >
-                {files.map((file) => (
-                    <Reorder.Item
-                        key={file.id}
-                        value={file}
-                        className={cn(
-                            "group bg-text-main/[0.02] border border-text-main/5 rounded-xl p-3 hover:border-primary/20 transition-all cursor-grab active:cursor-grabbing",
-                            !file.selected && "opacity-40"
-                        )}
-                    >
-                        <div className="flex items-center gap-3">
-                            {/* Drag Handle */}
-                            <GripVertical className="w-4 h-4 text-text-muted/30 group-hover:text-primary/50 flex-shrink-0" />
-
-                            {/* File Thumbnail */}
-                            <div
-                                className="relative w-12 h-12 rounded-lg overflow-hidden bg-text-main/5 flex-shrink-0 ring-1 ring-text-main/5"
-                                onMouseEnter={() => onHoverFile(file.path)}
-                                onMouseLeave={() => onHoverFile(null)}
-                            >
-                                <FileThumbnail
-                                    id={file.id}
-                                    path={file.path}
-                                    name={file.name}
-                                    className="w-full h-full"
-                                />
-                            </div>
-
-                            {/* File Info */}
-                            <div className="flex-1 min-w-0">
-                                <p className="text-[11px] font-bold text-text-main truncate">
-                                    {file.name}
-                                </p>
-                                <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="text-[9px] font-bold text-text-muted">
-                                        {formatBytes(file.size, 1)}
-                                    </span>
-                                    <span className="w-1 h-1 rounded-full bg-text-muted/30" />
-                                    <span className="text-[9px] font-bold text-primary">
-                                        {file.format}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Remove Button */}
-                            <button
-                                onClick={() => onRemoveFile(file.id)}
-                                className="w-6 h-6 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-500 flex items-center justify-center transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        </div>
-                    </Reorder.Item>
-                ))}
-            </Reorder.Group>
-        </motion.section>
-    );
-};
+        </div>
+    </section>;
+}

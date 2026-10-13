@@ -7,6 +7,8 @@ pub enum ImageFormat {
     PNG,
     WebP,
     BMP,
+    AVIF,
+    SVG,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -18,16 +20,22 @@ pub enum ProcessStatus {
 }
 
 pub struct AppState {
+    pub batch_active: std::sync::atomic::AtomicBool,
     pub processing_status: AtomicU8, // 0 = Running, 1 = Paused, 2 = Cancelled
     pub processing_notify: std::sync::Arc<tokio::sync::Notify>,
+    pub memory_budget: std::sync::Arc<tokio::sync::Semaphore>,
+    pub thumbnail_slots: std::sync::Arc<tokio::sync::Semaphore>,
     pub temp_dirs: std::sync::Mutex<Vec<tempfile::TempDir>>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
+            batch_active: std::sync::atomic::AtomicBool::new(false),
             processing_status: AtomicU8::new(0),
             processing_notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+            memory_budget: std::sync::Arc::new(tokio::sync::Semaphore::new(768)),
+            thumbnail_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
             temp_dirs: std::sync::Mutex::new(Vec::new()),
         }
     }
@@ -54,7 +62,56 @@ pub struct AdvancedSettings {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct ResizeSettings {
+    #[serde(default)]
+    pub mode: ResizeMode,
+    #[serde(default = "default_width")]
+    pub width: u32,
+    #[serde(default = "default_width")]
+    pub height: u32,
+    #[serde(default = "default_percent")]
+    pub percent: f64,
+    #[serde(default)]
+    pub filter: ResizeFilter,
+}
+impl Default for ResizeSettings {
+    fn default() -> Self {
+        Self {
+            mode: ResizeMode::Original,
+            width: 1920,
+            height: 1920,
+            percent: 100.0,
+            filter: ResizeFilter::Lanczos3,
+        }
+    }
+}
+fn default_width() -> u32 {
+    1920
+}
+fn default_percent() -> f64 {
+    100.0
+}
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+pub enum ResizeMode {
+    #[default]
+    Original,
+    Fit,
+    Percent,
+}
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub enum ResizeFilter {
+    #[default]
+    Lanczos3,
+    CatmullRom,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct BatchSettings {
+    #[serde(default)]
+    pub resize: ResizeSettings,
+    #[serde(default)]
+    pub measure_quality: bool,
     pub global_preset: String,
     pub advanced_mode: bool,
     pub format_presets: std::collections::HashMap<String, AdvancedSettings>,
