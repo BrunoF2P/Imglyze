@@ -3,32 +3,9 @@ pub mod domain;
 pub mod infrastructure;
 pub mod theme;
 
-use theme::SystemTheme;
-
 #[tauri::command]
-async fn get_system_theme() -> Result<SystemTheme, String> {
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(theme) = theme::get_kde_theme() {
-            return Ok(theme);
-        }
-
-        if let Ok(theme) = theme::get_gtk_theme() {
-            return Ok(theme);
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        return theme::get_windows_theme();
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        return theme::get_macos_theme();
-    }
-
-    Err("Unsupported platform".to_string())
+async fn get_system_theme(window: tauri::Window) -> Result<tauri::Theme, String> {
+    window.theme().map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
