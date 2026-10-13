@@ -12,7 +12,9 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "release:build": "node scripts/build-release.mjs",
+    "repo:push": "node scripts/push-remotes.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.18",

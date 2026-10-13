@@ -1,202 +1,94 @@
-stages:
-  - lint
-  - test
-  - build
-  - release
+stages: [verify, build, release]
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_TAG'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 
 variables:
-  CARGO_HOME: $CI_PROJECT_DIR/.cargo
-  npm_config_cache: $CI_PROJECT_DIR/.npm
+  GLAB_ENABLE_CI_AUTOLOGIN: "true"
+  npm_config_cache: "$CI_PROJECT_DIR/.npm"
 
-# Cache dependencies
-cache:
-  key: ${CI_COMMIT_REF_SLUG}
-  paths:
-    - .cargo/
-    - .npm/
-    - src-tauri/target/
-    - node_modules/
-
-# === LINT STAGE ===
-
-lint:frontend:
-  stage: lint
-  image: node:20
+verify:frontend:
+  stage: verify
+  image: node:24
   script:
     - npm ci
-    - npm run lint || echo "Add lint script to package.json"
-  only:
-    - merge_requests
-    - main
+    - node scripts/check-release.mjs
+    - node --test scripts/__tests__/*.node.mjs
+    - npm run typecheck
+    - npm test
+    - npm run build
 
-lint:backend:
-  stage: lint
-  image: rust:latest
+.linux:
+  image: rust:1.98-trixie
   before_script:
     - apt-get update
-    - apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libayatana-appindicator3-dev
-  script:
-    - cd src-tauri
-    - rustup component add clippy
-    - cargo clippy -- -D warnings
-  only:
-    - merge_requests
-    - main
+    - apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libdav1d-dev patchelf file curl git python3 meson ninja-build nasm pkg-config build-essential rpm
 
-format:check:
-  stage: lint
-  image: rust:latest
+verify:backend:
+  extends: .linux
+  stage: verify
   script:
+    - rustup component add rustfmt clippy
+    - python3 -m unittest discover -s scripts/__tests__ -p 'test_*.py'
     - cd src-tauri
-    - rustup component add rustfmt
     - cargo fmt -- --check
-  only:
-    - merge_requests
-    - main
-
-# === TEST STAGE ===
-
-test:frontend:
-  stage: test
-  image: node:20
-  script:
-    - npm ci
-    - npm run test || echo "Add tests first!"
-  coverage: '/Lines\s*:\s*(\d+\.\d+)%/'
-  artifacts:
-    reports:
-      coverage_report:
-        coverage_format: cobertura
-        path: coverage/cobertura-coverage.xml
-  only:
-    - merge_requests
-    - main
-
-test:backend:
-  stage: test
-  image: rust:latest
-  before_script:
-    - apt-get update
-    - apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libayatana-appindicator3-dev
-  script:
-    - cd src-tauri
-    - cargo test --verbose
-  only:
-    - merge_requests
-    - main
-
-# === BUILD STAGE ===
+    - cargo clippy --locked --all-targets -- -D warnings
+    - cargo test --locked
 
 build:linux:
+  extends: .linux
   stage: build
-  image: rust:latest
-  before_script:
-    # Install dependencies for Tauri
-    - apt-get update
-    - apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libayatana-appindicator3-dev file
-    - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    - apt-get install -y nodejs
+  rules:
+    - if: '$CI_COMMIT_TAG'
   script:
+    - curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+    - apt-get install -y nodejs
     - npm ci
-    - npm run build
-    - npm run tauri build
+    - npm run release:build
+    - python3 scripts/release-assets.py --platform linux --bundle src-tauri/target/release/bundle
   artifacts:
-    paths:
-      - src-tauri/target/release/bundle/
-    expire_in: 1 week
-  only:
-    - main
-    - tags
+    paths: [release-assets/]
+    expire_in: 30 days
 
 build:windows:
   stage: build
-  tags:
-    - windows # Requires Windows runner
+  tags: [windows]
+  rules:
+    - if: '$CI_COMMIT_TAG'
   script:
     - npm ci
-    - npm run build
-    - npm run tauri build
+    - npm run release:build
+    - python scripts/release-assets.py --platform windows --bundle src-tauri/target/release/bundle
   artifacts:
-    paths:
-      - src-tauri/target/release/bundle/
-    expire_in: 1 week
-  only:
-    - main
-    - tags
-  when: manual # Manual trigger for Windows builds
+    paths: [release-assets/]
+    expire_in: 30 days
 
 build:macos:
   stage: build
-  tags:
-    - macos # Requires macOS runner  
+  tags: [macos]
+  rules:
+    - if: '$CI_COMMIT_TAG'
   script:
+    - rustup target add x86_64-apple-darwin aarch64-apple-darwin
     - npm ci
-    - npm run build
-    - npm run tauri build
+    - npm run release:build
+    - python3 scripts/release-assets.py --platform macos --bundle src-tauri/target/universal-apple-darwin/release/bundle
   artifacts:
-    paths:
-      - src-tauri/target/release/bundle/
-    expire_in: 1 week
-  only:
-    - main
-    - tags
-  when: manual # Manual trigger for macOS builds
-
-# === RELEASE STAGE ===
+    paths: [release-assets/]
+    expire_in: 30 days
 
 release:
   stage: release
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
-  script:
-    - echo "Creating release for $CI_COMMIT_TAG"
-  release:
-    tag_name: $CI_COMMIT_TAG
-    name: 'Release $CI_COMMIT_TAG'
-    description: 'Automated release for $CI_COMMIT_TAG'
-    assets:
-      links:
-        - name: 'Linux AppImage'
-          url: '$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/browse/src-tauri/target/release/bundle?job=build:linux'
-  only:
-    - tags
-  dependencies:
-    - build:linux
-
-# === UTILITY JOBS ===
-
-# Security audit
-security:audit:
-  stage: test
-  image: rust:latest
-  script:
-    - cargo install cargo-audit
-    - cd src-tauri
-    - cargo audit
-  allow_failure: true
-  only:
-    - schedules
-    - main
-
-# Dependency updates check
-dependencies:check:frontend:
-  stage: lint
-  image: node:20
-  script:
-    - npm outdated || true
-  allow_failure: true
-  only:
-    - schedules
-
-dependencies:check:backend:
-  stage: lint
-  image: rust:latest
+  image: registry.gitlab.com/gitlab-org/cli:latest
+  needs: [build:linux, build:windows, build:macos]
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: manual
   before_script:
-    - apt-get update
-    - apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libayatana-appindicator3-dev
+    - apk add --no-cache python3
   script:
-    - cd src-tauri
-    - cargo install cargo-outdated --locked || true
-    - cargo outdated
-  allow_failure: true
-  only:
-    - schedules
+    - python3 scripts/release-assets.py --finalize
+    - glab release create "$CI_COMMIT_TAG" --no-update --use-package-registry --name "Imglyze $CI_COMMIT_TAG" --notes-file docs/RELEASE_NOTES.md release-assets/*

@@ -26,3 +26,7 @@ dist-ssr
 # Test coverage reports
 coverage
 *.lcov
+
+.build/
+release-assets/
+__pycache__/
