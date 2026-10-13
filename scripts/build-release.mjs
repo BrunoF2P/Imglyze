@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { appleSecrets, withoutEmptyAppleSecrets } from './release-env.mjs';
 
 const platform = process.platform;
 const universal = platform === 'darwin';
@@ -31,8 +32,6 @@ if (releaseTag) {
       console.warn('Windows: instaladores sem assinatura de publicador.');
     }
   } else if (universal) {
-    const appleSecrets = ['APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_SIGNING_IDENTITY',
-      'APPLE_ID', 'APPLE_PASSWORD', 'APPLE_TEAM_ID'];
     if (requireSigning || appleSecrets.some(name => process.env[name])) {
       required(appleSecrets);
       config.bundle.macOS = { signingIdentity: process.env.APPLE_SIGNING_IDENTITY };
@@ -43,7 +42,7 @@ if (releaseTag) {
   }
 }
 run(platform === 'win32' ? 'python' : 'python3', ['scripts/build-dav1d.py', ...(universal ? ['--universal'] : [])]);
-const env = { ...process.env, SYSTEM_DEPS_DAV1D_LINK: 'static', SYSTEM_DEPS_DAV1D_BUILD_INTERNAL: 'never',
+const env = { ...withoutEmptyAppleSecrets(process.env), SYSTEM_DEPS_DAV1D_LINK: 'static', SYSTEM_DEPS_DAV1D_BUILD_INTERNAL: 'never',
   PKG_CONFIG_PATH: resolve(root, '.build/dav1d/install/lib/pkgconfig'),
   ...(universal ? { PKG_CONFIG_ALLOW_CROSS: '1' } : {}) };
 mkdirSync(resolve(root, '.build'), { recursive: true });
