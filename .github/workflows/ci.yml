@@ -101,6 +101,7 @@ jobs:
         with:
           workspaces: src-tauri
           key: release-${{ matrix.platform }}
+          cache-on-failure: true
       - name: Importar certificado Windows quando configurado
         if: matrix.platform == 'windows'
         env:

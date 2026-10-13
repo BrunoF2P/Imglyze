@@ -44,7 +44,8 @@ if (releaseTag) {
 }
 run(platform === 'win32' ? 'python' : 'python3', ['scripts/build-dav1d.py', ...(universal ? ['--universal'] : [])]);
 const env = { ...process.env, SYSTEM_DEPS_DAV1D_LINK: 'static', SYSTEM_DEPS_DAV1D_BUILD_INTERNAL: 'never',
-  PKG_CONFIG_PATH: resolve(root, '.build/dav1d/install/lib/pkgconfig') };
+  PKG_CONFIG_PATH: resolve(root, '.build/dav1d/install/lib/pkgconfig'),
+  ...(universal ? { PKG_CONFIG_ALLOW_CROSS: '1' } : {}) };
 mkdirSync(resolve(root, '.build'), { recursive: true });
 const configPath = resolve(root, '.build/release-config.json');
 writeFileSync(configPath, JSON.stringify(config));
